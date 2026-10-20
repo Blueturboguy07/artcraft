@@ -217,6 +217,7 @@ export const getProviderDisplayName = (provider: string): string => {
     midjourney: "Midjourney",
     sora: "Sora",
     worldlabs: "World Labs",
+    publik: "publik API",
   };
 
   return displayNames[provider] || provider;

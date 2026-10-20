@@ -16,6 +16,7 @@ import { useSignals } from "@preact/signals-react/runtime";
 import { TopBar } from "~/components";
 import { ErrorDialog } from "~/components";
 import { LoginModal, useLoginModalStore } from "@storyteller/ui-login-modal";
+import { PublikSetupModal, usePublikStore } from "@storyteller/provider-setup-modal";
 import { toast, Toaster } from "@storyteller/ui-toaster";
 import {
   GalleryDragComponent,
@@ -159,7 +160,7 @@ export const MainApp = ({ sceneToken }: Props) => {
     });
   }, []);
 
-  const { triggerRecheck } = useLoginModalStore();
+  const { triggerRecheck, isOpen: isLoginModalOpen } = useLoginModalStore();
   const { isOpen: isCreditsOpen, closeModal: closeCreditsModal } =
     useCreditsModalStore();
   const disableHotkeyInput = usePageSceneStore((s) => s.disableHotkeyInput);
@@ -190,7 +191,17 @@ export const MainApp = ({ sceneToken }: Props) => {
           authentication.status.value = AUTH_STATUS.LOGGED_IN;
           authentication.userInfo.value = userInfo;
         }}
+        onContinueWithoutAccount={async () => {
+          // publik API makes images without an ArtCraft account: set it up if it is not.
+          const publik = usePublikStore.getState();
+          const status = await publik.refresh();
+          if (!status || status.provider === "not_set_up") {
+            publik.openSetup("pick");
+          }
+        }}
       />
+      {/* publik API's setup card: once on the first launch, after the sign-in screen closes. */}
+      <PublikSetupModal blocked={isLoginModalOpen} />
 
       <Suspense
         fallback={

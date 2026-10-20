@@ -299,7 +299,8 @@ export const IMAGE_MODELS: ImageModel[] = [
     fullName: "GPT Image 1 (GPT-4o)",
     category: "image",
     creator: ModelCreator.OpenAi,
-    providers: [GenerationProvider.Artcraft],
+    // publik API makes GPT Image 1 images with no ArtCraft account (publik balance or own key).
+    providers: [GenerationProvider.Artcraft, GenerationProvider.Publik],
     selectorName: "GPT Image 1 (GPT-4o)",
     selectorDescription: "Slow, but super smart",
     selectorBadges: ["60 sec."],

@@ -85,8 +85,9 @@ describe("desktop catalog", () => {
     const videos = buildVideoModelsFromListing(VIDEO_MODELS, [
       { model: "sora_2", duration_seconds_options: [4, 8, 12] },
     ]);
+    // publik API also serves GPT Image 1 (no ArtCraft account needed); ArtCraft stays first.
     expect(images.find((model) => model.tauriId === "gpt_image_1")?.getProviders())
-      .toEqual([GenerationProvider.Artcraft]);
+      .toEqual([GenerationProvider.Artcraft, GenerationProvider.Publik]);
     expect(videos.find((model) => model.tauriId === "sora_2")?.getProviders())
       .toEqual([GenerationProvider.Artcraft]);
     expect(SPLAT_MODELS.map((model) => model.tauriId)).toEqual([

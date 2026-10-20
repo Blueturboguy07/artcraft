@@ -32,6 +32,11 @@ interface LoginModalProps {
   // passes these); no longer used now that the showcase is a single video.
   videoSrc2D?: string;
   videoSrc3D?: string;
+  /**
+   * When set, the sign-in screen offers to continue without an ArtCraft account. publik API
+   * generates images with the person's publik balance or their own key and needs no account.
+   */
+  onContinueWithoutAccount?: () => void;
 }
 
 export function LoginModal({
@@ -40,6 +45,7 @@ export function LoginModal({
   onArtCraftAuthSuccess,
   isSignUp: initialIsSignUp = true,
   videoUrl = DEFAULT_SHOWCASE_VIDEO,
+  onContinueWithoutAccount,
 }: LoginModalProps) {
   const { isOpen, recheckTrigger, closeModal } = useLoginModalStore();
   const [isLoading, setIsLoading] = useState(false);
@@ -284,6 +290,23 @@ export function LoginModal({
                             errorMessage={errorMessage}
                             isLoading={isLoading}
                           />}
+                          {!isChallengeActive && onContinueWithoutAccount && (
+                            <div className="mt-6 flex flex-col items-start gap-1.5 border-t border-white/15 pt-5">
+                              <button
+                                type="button"
+                                className="text-sm font-medium text-white underline underline-offset-4 hover:text-white/80"
+                                onClick={() => {
+                                  closeModal();
+                                  onContinueWithoutAccount();
+                                }}
+                              >
+                                Continue with publik API
+                              </button>
+                              <p className="text-xs leading-relaxed text-white/50">
+                                Make images with GPT Image 1 through publik API. You do not need an ArtCraft account.
+                              </p>
+                            </div>
+                          )}
                         </div>
                       </div>
 

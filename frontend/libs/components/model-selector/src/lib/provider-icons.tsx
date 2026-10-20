@@ -65,6 +65,8 @@ export const getProviderDisplayName = (provider: GenerationProvider): string => 
       return "PixVerse";
     case GenerationProvider.Runway:
       return "Runway";
+    case GenerationProvider.Publik:
+      return "publik API";
     default:
       return "Unknown Provider";
   }
