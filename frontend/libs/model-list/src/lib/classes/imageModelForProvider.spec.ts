@@ -22,3 +22,14 @@ it("switches Midjourney capabilities without changing the ArtCraft catalog model
   expect(model.canUseImagePrompt).toBe(true);
   expect(model.predefinedGenerationCounts).toEqual([1, 2, 4]);
 });
+
+it("limits GPT Image 1 to what publik API takes", () => {
+  const [model] = buildImageModelsFromListing([], [{
+    model: "gpt_image_1", image_refs_supported: true, image_refs_max: 6,
+    quality_options: ["high", "medium", "low"],
+  }]);
+  const publik = imageModelForProvider(model, GenerationProvider.Publik)!;
+  expect(publik.maxImagePromptCount).toBe(1);
+  expect(publik.supportsQuality()).toBe(false);
+  expect(model.maxImagePromptCount).toBe(6);
+});

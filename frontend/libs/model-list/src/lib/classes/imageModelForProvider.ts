@@ -7,6 +7,7 @@ export function imageModelForProvider(
   model: ImageModel | undefined,
   provider: GenerationProvider | undefined,
 ): ImageModel | undefined {
+  if (model && provider === GenerationProvider.Publik) return publikImageModel(model);
   if (!model || provider !== GenerationProvider.Midjourney) return model;
   if (!["midjourney", "midjourney_7", "midjourney_7_niji", "midjourney_8"].includes(model.tauriId)) return model;
   return new ImageModel({
@@ -18,6 +19,22 @@ export function imageModelForProvider(
     canUseImagePrompt: false,
     canEditImages: false,
     maxImagePromptCount: 0,
+    canChangeResolution: false,
+    resolutions: [],
+    qualityOptions: [],
+    defaultResolution: undefined,
+    defaultQuality: undefined,
+  });
+}
+
+/** publik API's image line: GPT Image 1 with one image to edit, no quality or resolution
+ * choice, and three sizes (square, landscape, portrait). */
+function publikImageModel(model: ImageModel): ImageModel {
+  if (model.tauriId !== "gpt_image_1") return model;
+  return new ImageModel({
+    ...model,
+    providers: model.getProviders(),
+    maxImagePromptCount: 1,
     canChangeResolution: false,
     resolutions: [],
     qualityOptions: [],
