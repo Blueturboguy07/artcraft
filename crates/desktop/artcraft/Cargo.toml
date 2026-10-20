@@ -50,6 +50,10 @@ url_utils.workspace = true
 web_base64.workspace = true
 worldlabs_consumer_client.workspace = true
 
+# publik API (publikhq.com): provisioning, the credential file and the image and chat calls.
+# Shared by publik's Craft apps; a sibling checkout at ../craft-publik (no egui feature here).
+craft-publik = { path = "../../../../craft-publik" }
+
 # External
 anyhow.workspace = true
 base64.workspace = true

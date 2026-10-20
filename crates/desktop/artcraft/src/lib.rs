@@ -44,6 +44,7 @@ use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
 use crate::core::state::app_preferences::app_preferences_manager::load_app_preferences_or_default;
 use crate::core::state::artcraft_platform_info::ArtcraftPlatformInfo;
 use crate::core::state::data_dir::app_data_root::AppDataRoot;
+use crate::core::state::data_dir::trait_data_subdir::DataSubdir;
 use crate::core::state::provider_priority::ProviderPriorityStore;
 use crate::core::threads::discord_presence_thread::discord_presence_thread;
 use crate::core::threads::main_window_thread::main_window_thread::main_window_thread;
@@ -56,6 +57,16 @@ use crate::services::midjourney::commands::midjourney_clear_credentials_command:
 use crate::services::midjourney::commands::midjourney_get_credential_info_command::midjourney_get_credential_info_command;
 use crate::services::midjourney::commands::midjourney_open_login_command::midjourney_open_login_command;
 use crate::services::midjourney::state::midjourney_credential_manager::MidjourneyCredentialManager;
+use crate::services::publik::commands::publik_close_setup_command::publik_close_setup_command;
+use crate::services::publik::commands::publik_dismiss_notice_command::publik_dismiss_notice_command;
+use crate::services::publik::commands::publik_forget_key_command::publik_forget_key_command;
+use crate::services::publik::commands::publik_get_status_command::publik_get_status_command;
+use crate::services::publik::commands::publik_improve_prompt_command::publik_improve_prompt_command;
+use crate::services::publik::commands::publik_link_computer_command::publik_link_computer_command;
+use crate::services::publik::commands::publik_mark_first_card_shown_command::publik_mark_first_card_shown_command;
+use crate::services::publik::commands::publik_set_own_key_command::publik_set_own_key_command;
+use crate::services::publik::state::publik_ai_state::PublikAiState;
+use crate::services::publik::state::publik_app_info::publik_app_info;
 use crate::services::sora::commands::check_sora_session_command::check_sora_session_command;
 use crate::services::sora::commands::open_sora_login_command::open_sora_login_command;
 use crate::services::sora::commands::sora_get_credential_info_command::sora_get_credential_info_command;
@@ -149,6 +160,10 @@ pub fn run() {
   let worldlabs_bearer_bridge = WorldlabsBearerBridge::empty();
   let worldlabs_bearer_bridge_2 = worldlabs_bearer_bridge.clone();
   
+  // publik API (or the person's own key) for GPT Image 1 and "Improve prompt". ai.json lives with
+  // ArtCraft's other settings; publik's key lives in publik's own credential file.
+  let publik_ai_state = PublikAiState::new(publik_app_info(Some(app_data_root.settings_dir().path().to_path_buf())));
+
   let artcraft_usage_tracker = ArtcraftUsageTracker::new();
   let artcraft_usage_tracker_2 = artcraft_usage_tracker.clone();
 
@@ -220,6 +235,7 @@ pub fn run() {
     .manage(storyteller_creds_manager_3)
     .manage(worldlabs_bearer_bridge)
     .manage(provider_credential_cache)
+    .manage(publik_ai_state)
     .manage(worldlabs_creds_manager);
 
   // TODO: Break this out into another module, because RustRover/IntelliJ lags with these macros.
@@ -253,6 +269,14 @@ pub fn run() {
     provider_clear_command,
     provider_list_command,
     provider_set_api_key_command,
+    publik_close_setup_command,
+    publik_dismiss_notice_command,
+    publik_forget_key_command,
+    publik_get_status_command,
+    publik_improve_prompt_command,
+    publik_link_computer_command,
+    publik_mark_first_card_shown_command,
+    publik_set_own_key_command,
     grok_clear_credentials_command,
     grok_get_credential_info_command,
     grok_open_login_command,

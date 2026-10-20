@@ -123,4 +123,6 @@ pub enum TauriGenerateImageErrorType {
   NeedsMidjourneyCredentials,
   /// Billing issue
   BillingIssue,
+  /// publik API is the provider, but AI is not set up on this computer yet
+  NeedsPublikSetup,
 }

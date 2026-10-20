@@ -1,5 +1,6 @@
 use crate::core::events::functional_events::show_provider_login_modal_event::ShowProviderLoginModalEvent;
 use crate::core::commands::generate::generate_image::providers::midjourney::handle_midjourney::handle_midjourney;
+use crate::core::commands::generate::generate_image::providers::publik::handle_publik::handle_publik;
 use crate::core::commands::generate::omni::{self, Modality, OmniRequest, OmniResult};
 use crate::core::commands::generate::omni::dispatch::{adapt_legacy_response, decode_native};
 use tauri::Manager;
@@ -47,6 +48,11 @@ async fn generate_image_native(
   info!("generate_image_command called, request: {:?}", request);
 
   let provider = request.provider.unwrap_or(GenerationProvider::Artcraft);
+
+  // publik API runs its own job and completes the task itself; it needs no ArtCraft account.
+  if provider == GenerationProvider::Publik {
+    return handle_publik(&request, &app).await;
+  }
 
   let result = match provider {
     GenerationProvider::Artcraft => {

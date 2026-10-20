@@ -7,6 +7,7 @@ use crate::core::lifecycle::startup::tasks::spawn_main_window_thread::spawn_main
 use crate::core::lifecycle::startup::tasks::spawn_sora_task_polling_thread::spawn_sora_task_polling_thread;
 use crate::core::lifecycle::startup::tasks::spawn_storyteller_threads::spawn_storyteller_threads;
 use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
+use crate::services::publik::threads::fail_stale_publik_tasks::fail_stale_publik_tasks;
 use crate::core::state::artcraft_platform_info::ArtcraftPlatformInfo;
 use crate::core::state::artcraft_usage_tracker::artcraft_usage_tracker::ArtcraftUsageTracker;
 use crate::core::state::data_dir::app_data_root::AppDataRoot;
@@ -51,6 +52,8 @@ pub async fn handle_tauri_startup(
 
   let task_database =
       bootstrap_task_database(&app, &root).await?;
+
+  fail_stale_publik_tasks(&task_database).await;
 
   load_provider_priority_state(
     &app,
