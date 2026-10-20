@@ -105,6 +105,9 @@
     },
     {
       "path": "../modal/tsconfig.lib.json"
+    },
+    {
+      "path": "../provider-setup-modal/tsconfig.lib.json"
     }
   ]
 }

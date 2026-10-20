@@ -36,6 +36,9 @@ import {
   type DroppedFiles,
 } from "./deck/usePromptBoxDrop";
 import { DeckAddAction, DeckItem } from "./deck/deckTypes";
+import { usePublikStore } from "@storyteller/provider-setup-modal";
+import { PublikResultBar } from "./publik/PublikResultBar";
+import { ImprovePromptButton } from "./publik/ImprovePromptButton";
 
 interface PromptBoxImageProps {
   useJobContext: () => JobContextType;
@@ -81,6 +84,10 @@ export const PromptBoxImage = ({
     [catalogModel, selectedProvider],
   );
   const isDirectMidjourney = selectedProvider === GenerationProvider.Midjourney;
+  // publik API bills its own balance (or the own key's service), never ArtCraft credits.
+  const isPublik = selectedProvider === GenerationProvider.Publik;
+  const publikNotice = usePublikStore((s) => s.status?.maybe_notice);
+  const openPublikSetup = usePublikStore((s) => s.openSetup);
 
 
   console.debug(
@@ -437,6 +444,9 @@ export const PromptBoxImage = ({
     } catch (err) {
       console.error("PromptBoxImage - enqueue failed", err);
       toast.error(commandErrorMessage(err, "Failed to start image generation. Please try again."));
+      if ((err as { error_type?: string } | undefined)?.error_type === "needs_publik_setup") {
+        openPublikSetup("pick");
+      }
     } finally {
       setIsEnqueueing(false);
     }
@@ -574,6 +584,7 @@ export const PromptBoxImage = ({
                   setGenerationCount(count);
                 }}
               />
+              <ImprovePromptButton prompt={prompt} onAccept={setPrompt} />
               <PromptClearAllButton
                 onClick={handleClearAll}
                 disabled={!hasClearableContent}
@@ -583,10 +594,11 @@ export const PromptBoxImage = ({
                 onClick={handleEnqueue}
                 disabled={!prompt.trim()}
                 loading={isEnqueueing}
-                credits={isDirectMidjourney ? 0 : credits}
+                credits={isDirectMidjourney || isPublik ? 0 : credits}
               />
             </div>
           </div>
+          {(isPublik || publikNotice) && <PublikResultBar />}
           <div className="absolute -bottom-1 left-1/2 -translate-x-1/2">
             <Tooltip
               content={isExpanded ? "Collapse" : "Expand"}
