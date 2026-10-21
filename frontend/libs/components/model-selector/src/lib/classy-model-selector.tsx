@@ -11,7 +11,11 @@ import {
 import { useEffect, useMemo } from "react";
 import { ModelPage } from "./model-pages";
 import { Provider } from "@storyteller/tauri-api";
-import { getProviderDisplayName, getProviderIcon } from "./provider-icons";
+import {
+  getProviderDisplayName,
+  getProviderIcon,
+  offersProviderChoice,
+} from "./provider-icons";
 import {
   Model,
   getCreatorIcon,
@@ -52,13 +56,14 @@ interface ClassyModelSelectorProps {
   showProviderSelection?: boolean;
 }
 
-// Model instances are rebuilt when the backend listing hydrates, so compare by
-// tauriId rather than object identity.
+// Model instances can be rebuilt (for example by imageModelForProvider), so compare
+// by tauriId rather than object identity.
 const isSameModel = (a: Model | undefined, b: Model | undefined): boolean =>
   a !== undefined && b !== undefined && a.tauriId === b.tauriId;
 
+// publik API is the only provider: the publik balance or the person's own key.
 const DEFAULT_PROVIDER_OPTIONS: GenerationProvider[] = [
-  GenerationProvider.Artcraft,
+  GenerationProvider.Publik,
 ];
 
 function ProviderTooltipContent({
@@ -199,10 +204,11 @@ export function ClassyModelSelector({
         const allowedProviders =
           item.model?.getProviders() || DEFAULT_PROVIDER_OPTIONS;
 
-        // When provider selection is hidden, treat every model as
-        // single-provider so the submenu and provider chips never render.
+        // When provider selection is hidden (or publik API is the only
+        // provider), treat every model as single-provider so the submenu and
+        // provider chips never render.
         const hasMultipleProviders =
-          showProviderSelection && allowedProviders.length >= 2;
+          showProviderSelection && offersProviderChoice(allowedProviders);
 
         return {
           ...item,
@@ -317,7 +323,11 @@ export function ClassyModelSelector({
         renderTrigger={(selectedItem) => {
           const modelTitle =
             selectedItem?.label ?? selectedModel?.selectorName ?? "";
-          const providerIcon = selectedProvider
+          const showProvider =
+            showProviderSelection &&
+            !!selectedProvider &&
+            offersProviderChoice(selectedModel?.getProviders() ?? DEFAULT_PROVIDER_OPTIONS);
+          const providerIcon = showProvider && selectedProvider
             ? getProviderIcon(selectedProvider)
             : null;
           return (
@@ -328,17 +338,17 @@ export function ClassyModelSelector({
                     {modelTitle}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-base-fg/60 text-[13px] -mt-[1px]">
-                  <span>via</span>
-                  {providerIcon && (
-                    <span className="opacity-70">{providerIcon}</span>
-                  )}
-                  <span className="truncate">
-                    {selectedProvider
-                      ? getProviderDisplayName(selectedProvider)
-                      : ""}
-                  </span>
-                </div>
+                {showProvider && selectedProvider && (
+                  <div className="flex items-center gap-1.5 text-base-fg/60 text-[13px] -mt-[1px]">
+                    <span>via</span>
+                    {providerIcon && (
+                      <span className="opacity-70">{providerIcon}</span>
+                    )}
+                    <span className="truncate">
+                      {getProviderDisplayName(selectedProvider)}
+                    </span>
+                  </div>
+                )}
               </div>
               <ChevronUpIcon className="text-base text-base-fg/70 self-center" />
             </div>

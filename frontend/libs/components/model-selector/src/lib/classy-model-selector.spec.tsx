@@ -2,26 +2,18 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GenerationProvider } from "@storyteller/api-enums";
-import { buildImageModelsFromListing } from "@storyteller/model-list";
+import { IMAGE_MODELS } from "@storyteller/model-list";
 import { useModelPickerStyleStore } from "@storyteller/ui-popover";
 import { ClassyModelSelector } from "./classy-model-selector";
 import { useClassyModelSelectorStore } from "./classy-model-selector-store";
 import { ModelPage } from "./model-pages";
+import { ProviderSelector } from "./provider-selector";
+import { buildTextToImagePageList } from "./model-selectors-for-pages";
 
 const PAGE = ModelPage.TextToImage;
-const MODELS = buildImageModelsFromListing([], [
-  { model: "nano_banana_pro" },
-  { model: "gpt_image_1p5" },
-  { model: "flux_dev" },
-  { model: "seedream_4" },
-  { model: "recraft_3" },
-  { model: "imagen_4" },
-  { model: "midjourney_7" },
-  { model: "midjourney_8" },
-]);
-const INITIAL_MODEL = MODELS.find((model) => model.id === "nano_banana_pro")!;
-const MIDJOURNEY_MODEL = MODELS.find((model) => model.id === "midjourney_8")!;
-const ITEMS = MODELS.map((model) => ({ label: model.selectorName, model }));
+const ITEMS = buildTextToImagePageList(IMAGE_MODELS);
+const GPT_IMAGE_1 = IMAGE_MODELS.find((model) => model.id === "gpt_image_1")!;
+const NANO_BANANA = IMAGE_MODELS.find((model) => model.id === "nano_banana")!;
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class {
@@ -34,10 +26,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(100, 100, 280, 40),
   );
-  useClassyModelSelectorStore.setState({
-    selectedModels: { [PAGE]: INITIAL_MODEL },
-    selectedProviders: { [PAGE]: { [MIDJOURNEY_MODEL.id]: GenerationProvider.Artcraft } },
-  });
+  useClassyModelSelectorStore.setState({ selectedModels: {}, selectedProviders: {} });
 });
 
 afterEach(() => {
@@ -48,57 +37,50 @@ afterEach(() => {
   useModelPickerStyleStore.getState().setStyle("grouped");
 });
 
-it.each([
-  { style: "grouped", provider: GenerationProvider.Midjourney, label: "Midjourney" },
-  { style: "flat", provider: GenerationProvider.Midjourney, label: "Midjourney" },
-  { style: "grouped", provider: GenerationProvider.Artcraft, label: "ArtCraft" },
-] as const)(
-  "selects both Midjourney v8 and $label from the $style picker",
-  async ({ style, provider, label }) => {
-    if (provider === GenerationProvider.Artcraft) {
-      useClassyModelSelectorStore.getState().setSelectedProvider(PAGE, MIDJOURNEY_MODEL.id, GenerationProvider.Midjourney);
+it("selects GPT Image 1 with publik API by default", async () => {
+  render(<ClassyModelSelector items={ITEMS} page={PAGE} variant="embedded" />);
+
+  await waitFor(() =>
+    expect(useClassyModelSelectorStore.getState().selectedModels[PAGE]).toBe(GPT_IMAGE_1),
+  );
+  expect(useClassyModelSelectorStore.getState().selectedProviders[PAGE]?.[GPT_IMAGE_1.id])
+    .toBe(GenerationProvider.Publik);
+  expect(screen.getByRole("button", { name: /GPT Image 1/ })).toBeTruthy();
+});
+
+it.each(["grouped", "flat"] as const)(
+  "shows no provider choice in the %s picker and picks Nano Banana with publik API",
+  async (style) => {
+    const user = userEvent.setup();
+    useModelPickerStyleStore.getState().setStyle(style);
+    render(<ClassyModelSelector items={ITEMS} page={PAGE} variant="embedded" />);
+
+    await user.click(screen.getByRole("button", { name: /GPT Image 1/ }));
+    if (style === "grouped" && !screen.queryByText(NANO_BANANA.selectorName, { exact: true })) {
+      await user.click(screen.getByText("Google", { exact: false }));
     }
-    const user = await openProviderPicker(style);
+    const row = await screen.findByText(NANO_BANANA.selectorName, { exact: true });
+    await user.hover(row);
+    expect(screen.queryByText("Select Provider")).toBeNull();
+    expect(screen.queryByText("publik API")).toBeNull();
 
-    // A real click includes the press and focus events that used to dismiss
-    // the grouped submenu before the provider's click handler could run.
-    await user.click(screen.getByRole("button", { name: new RegExp(label) }));
-
-    expect(useClassyModelSelectorStore.getState().selectedModels[PAGE]).toBe(MIDJOURNEY_MODEL);
-    expect(useClassyModelSelectorStore.getState().selectedProviders[PAGE]?.[MIDJOURNEY_MODEL.id])
-      .toBe(provider);
-    await waitFor(() => expect(screen.queryByText("Select Model")).toBeNull());
-    expect(screen.getByRole("button", { name: new RegExp(MIDJOURNEY_MODEL.selectorName) })).toBeTruthy();
+    await user.click(row);
+    expect(useClassyModelSelectorStore.getState().selectedModels[PAGE]).toBe(NANO_BANANA);
+    expect(useClassyModelSelectorStore.getState().selectedProviders[PAGE]?.[NANO_BANANA.id])
+      .toBe(GenerationProvider.Publik);
   },
 );
 
-it("still dismisses the grouped picker on an outside press without changing selection", async () => {
-  const user = await openProviderPicker("grouped");
-
-  await user.click(screen.getByRole("button", { name: "Outside" }));
-
-  await waitFor(() => expect(screen.queryByText("Select Model")).toBeNull());
-  expect(screen.queryByText("Select Provider")).toBeNull();
-  expect(useClassyModelSelectorStore.getState().selectedModels[PAGE]).toBe(INITIAL_MODEL);
-  expect(useClassyModelSelectorStore.getState().selectedProviders[PAGE]?.[MIDJOURNEY_MODEL.id])
-    .toBe(GenerationProvider.Artcraft);
+it("shows no provider line in the floating picker", async () => {
+  render(<ClassyModelSelector items={ITEMS} page={PAGE} variant="floating" />);
+  await waitFor(() =>
+    expect(useClassyModelSelectorStore.getState().selectedModels[PAGE]).toBe(GPT_IMAGE_1),
+  );
+  expect(screen.queryByText("via")).toBeNull();
+  expect(screen.queryByText("publik API")).toBeNull();
 });
 
-async function openProviderPicker(style: "grouped" | "flat") {
-  const user = userEvent.setup();
-  useModelPickerStyleStore.getState().setStyle(style);
-  render(
-    <>
-      <ClassyModelSelector items={ITEMS} page={PAGE} variant="embedded" />
-      <button type="button">Outside</button>
-    </>,
-  );
-
-  await user.click(screen.getByRole("button", { name: new RegExp(INITIAL_MODEL.selectorName) }));
-  if (style === "grouped") {
-    await user.click(screen.getByText("Midjourney", { exact: true }));
-  }
-  await user.hover(await screen.findByText(MIDJOURNEY_MODEL.selectorName, { exact: true }));
-  await screen.findByRole("button", { name: /Midjourney/ });
-  return user;
-}
+it("renders no provider selector when publik API is the only provider", () => {
+  const { container } = render(<ProviderSelector page={PAGE} model={GPT_IMAGE_1} />);
+  expect(container.innerHTML).toBe("");
+});

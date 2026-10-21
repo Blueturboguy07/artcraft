@@ -88,8 +88,9 @@ export class Model {
     this.maxPromptLength = args.maxPromptLength ?? 3000;
   }
 
+  // publik API is the only provider: the publik balance or the person's own key.
   getProviders(): GenerationProvider[] {
-    return this.providers ?? [GenerationProvider.Artcraft];
+    return this.providers ?? [GenerationProvider.Publik];
   }
 
   toLegacyBadges(): { label: string }[] {

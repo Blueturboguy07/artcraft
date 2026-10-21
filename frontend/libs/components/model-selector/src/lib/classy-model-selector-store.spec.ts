@@ -8,10 +8,11 @@ import {
   useSelectedProviderForModel,
 } from "./classy-model-selector-store";
 
-const RETIRED_SELECTIONS = [
+const STALE_SELECTIONS = [
   { page: ModelPage.TextToImage, modelId: "gpt_image_1", provider: GenerationProvider.Sora },
-  { page: ModelPage.ImageToVideo, modelId: "sora_2", provider: GenerationProvider.Sora },
-  { page: ModelPage.ImageTo3DWorld, modelId: "marble_0p1_plus", provider: GenerationProvider.WorldLabs },
+  { page: ModelPage.TextToImage, modelId: "gpt_image_1", provider: GenerationProvider.Artcraft },
+  { page: ModelPage.TextToImage, modelId: "nano_banana", provider: GenerationProvider.Fal },
+  { page: ModelPage.Canvas2D, modelId: "gpt_image_1", provider: GenerationProvider.Midjourney },
 ];
 
 afterEach(() => {
@@ -19,28 +20,27 @@ afterEach(() => {
   useClassyModelSelectorStore.setState({ selectedModels: {}, selectedProviders: {} });
 });
 
-it.each(RETIRED_SELECTIONS)(
-  "uses ArtCraft for stale $provider selections of $modelId in generation and pricing",
+it.each(STALE_SELECTIONS)(
+  "uses publik API for a stale $provider selection of $modelId",
   ({ page, modelId, provider }) => {
     useClassyModelSelectorStore.setState({
       selectedProviders: { [page]: { [modelId]: provider } },
     });
     const { result } = renderHook(() => useSelectedProviderForModel(page, modelId));
-    expect(result.current).toBe(GenerationProvider.Artcraft);
-    expect(getSelectedProviderForModel(page, modelId)).toBe(GenerationProvider.Artcraft);
+    expect(result.current).toBe(GenerationProvider.Publik);
+    expect(getSelectedProviderForModel(page, modelId)).toBe(GenerationProvider.Publik);
 
     act(() => useClassyModelSelectorStore.getState().setSelectedProvider(page, modelId, provider));
     expect(useClassyModelSelectorStore.getState().selectedProviders[page]?.[modelId])
-      .toBe(GenerationProvider.Artcraft);
+      .toBe(GenerationProvider.Publik);
   },
 );
 
-it("preserves other provider selections and missing defaults", () => {
+it("uses publik API before any provider is stored", () => {
   const page = ModelPage.TextToImage;
-  const modelId = "midjourney";
-  const { result } = renderHook(() => useSelectedProviderForModel(page, modelId));
-  expect(result.current).toBeUndefined();
-  act(() => useClassyModelSelectorStore.getState().setSelectedProvider(page, modelId, GenerationProvider.Midjourney));
-  expect(result.current).toBe(GenerationProvider.Midjourney);
-  expect(getSelectedProviderForModel(page, modelId)).toBe(GenerationProvider.Midjourney);
+  const { result } = renderHook(() => useSelectedProviderForModel(page, "gpt_image_1"));
+  expect(result.current).toBe(GenerationProvider.Publik);
+  expect(getSelectedProviderForModel(page, "gpt_image_1")).toBe(GenerationProvider.Publik);
+  const { result: noModel } = renderHook(() => useSelectedProviderForModel(page, undefined));
+  expect(noModel.current).toBeUndefined();
 });

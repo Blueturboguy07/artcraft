@@ -71,3 +71,8 @@ export const getProviderDisplayName = (provider: GenerationProvider): string => 
       return "Unknown Provider";
   }
 };
+
+/** True when the person has a real provider choice. publik API alone is no choice. */
+export const offersProviderChoice = (providers: GenerationProvider[]): boolean =>
+  providers.length >= 2 &&
+  providers.some((provider) => provider !== GenerationProvider.Publik);

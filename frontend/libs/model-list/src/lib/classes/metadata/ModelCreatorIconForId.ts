@@ -8,7 +8,7 @@ import {
 import { ALL_MODELS_LIST } from "../../lists/AllModels.js";
 
 // Fallback prefix → creator map for model ids that aren't in ALL_MODELS_LIST
-// (legacy / API-only ids). Shared with the model-list loader's creator guess.
+// (legacy / API-only ids, older task records).
 export const MODEL_ID_PREFIX_CREATORS: Array<[string, ModelCreator]> = [
   ["flux", ModelCreator.BlackForestLabs],
   ["nano_banana", ModelCreator.Google],

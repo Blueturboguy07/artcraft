@@ -18,8 +18,6 @@ export * from "./lib/enqueue/EnqueueImageToVideo.js";
 export * from "./lib/enqueue/EnqueueTextToImage.js";
 export * from "./lib/generate/GenerateImage.js";
 export * from "./lib/generate/GenerateVideo.js";
-export * from "./lib/generate/models/image/ListImageModels.js";
-export * from "./lib/generate/models/video/ListVideoModels.js";
 export * from "./lib/events/BasicEventWrapper.js";
 export * from "./lib/events/CanvasBgRemovedEvent.js";
 export * from "./lib/fal/FalBackgroundRemoval.js";

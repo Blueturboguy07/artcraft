@@ -1,44 +1,14 @@
 import { GenerationProvider } from "@storyteller/api-enums";
 import { ImageModel } from "./ImageModel.js";
 
-/** Capabilities of the user's own Midjourney session, independent of the
- * ArtCraft backend's capabilities for the same models. */
+/**
+ * The capabilities of `model` for `provider`. Every image model is already shaped for
+ * publik API (the only provider), so the model comes back unchanged. Kept as a seam for
+ * callers that pass the selected provider.
+ */
 export function imageModelForProvider(
   model: ImageModel | undefined,
-  provider: GenerationProvider | undefined,
+  _provider: GenerationProvider | undefined,
 ): ImageModel | undefined {
-  if (model && provider === GenerationProvider.Publik) return publikImageModel(model);
-  if (!model || provider !== GenerationProvider.Midjourney) return model;
-  if (!["midjourney", "midjourney_7", "midjourney_7_niji", "midjourney_8"].includes(model.tauriId)) return model;
-  return new ImageModel({
-    ...model,
-    providers: model.getProviders(),
-    defaultGenerationCount: 4,
-    maxGenerationCount: 4,
-    predefinedGenerationCounts: [4],
-    canUseImagePrompt: false,
-    canEditImages: false,
-    maxImagePromptCount: 0,
-    canChangeResolution: false,
-    resolutions: [],
-    qualityOptions: [],
-    defaultResolution: undefined,
-    defaultQuality: undefined,
-  });
-}
-
-/** publik API's image line: GPT Image 1 with one image to edit, no quality or resolution
- * choice, and three sizes (square, landscape, portrait). */
-function publikImageModel(model: ImageModel): ImageModel {
-  if (model.tauriId !== "gpt_image_1") return model;
-  return new ImageModel({
-    ...model,
-    providers: model.getProviders(),
-    maxImagePromptCount: 1,
-    canChangeResolution: false,
-    resolutions: [],
-    qualityOptions: [],
-    defaultResolution: undefined,
-    defaultQuality: undefined,
-  });
+  return model;
 }

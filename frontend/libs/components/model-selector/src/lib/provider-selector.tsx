@@ -7,7 +7,11 @@ import { PopoverMenu, type PopoverItem } from "@storyteller/ui-popover";
 import { ModelPage } from "./model-pages";
 import { Model } from "@storyteller/model-list";
 import { GenerationProvider } from "@storyteller/api-enums";
-import { getProviderDisplayName, getProviderIcon } from "./provider-icons";
+import {
+  getProviderDisplayName,
+  getProviderIcon,
+  offersProviderChoice,
+} from "./provider-icons";
 import {
   useClassyModelSelectorStore,
   useSelectedProviderForModel,
@@ -23,9 +27,9 @@ interface ProviderSelectorProps {
   triggerLabel?: string;
 }
 
+// publik API is the only provider: the publik balance or the person's own key.
 const DEFAULT_PROVIDER_OPTIONS: GenerationProvider[] = [
-  GenerationProvider.Artcraft,
-  GenerationProvider.Fal,
+  GenerationProvider.Publik,
 ];
 
 export function ProviderSelector({
@@ -39,9 +43,8 @@ export function ProviderSelector({
   const modelId = model?.id;
   const allowedProviders: GenerationProvider[] = useMemo(() => {
     if (!modelId) return DEFAULT_PROVIDER_OPTIONS;
-    const providers = (providersByModel?.[modelId] ?? model?.getProviders() ?? DEFAULT_PROVIDER_OPTIONS)
-      .filter((provider) => provider !== GenerationProvider.Sora && provider !== GenerationProvider.WorldLabs);
-    return providers.length > 0 ? providers : [GenerationProvider.Artcraft];
+    const providers = providersByModel?.[modelId] ?? model?.getProviders() ?? DEFAULT_PROVIDER_OPTIONS;
+    return providers.length > 0 ? providers : DEFAULT_PROVIDER_OPTIONS;
   }, [providersByModel, modelId, model]);
 
   const selectedProvider = useSelectedProviderForModel(page, modelId);
@@ -81,6 +84,9 @@ export function ProviderSelector({
     if (!prov) return;
     setSelectedProvider(page, modelId, prov);
   };
+
+  // publik API alone is no choice: show nothing.
+  if (!offersProviderChoice(allowedProviders)) return null;
 
   return (
     <PopoverMenu

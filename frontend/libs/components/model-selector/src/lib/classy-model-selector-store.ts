@@ -31,7 +31,7 @@ export const useClassyModelSelectorStore = create<ClassyModelSelectorState>(
           ...state.selectedProviders,
           [page]: {
             ...(state.selectedProviders[page] ?? {}),
-            [modelId]: resolveSelectedProvider(provider)!,
+            [modelId]: resolveSelectedProvider(provider),
           },
         },
       })),
@@ -75,9 +75,7 @@ export const getSelectedProviderForModel = (
   modelId: string
 ): GenerationProvider | undefined => {
   const { selectedProviders } = useClassyModelSelectorStore.getState();
-  const byPage = selectedProviders[page];
-  if (!byPage) return undefined;
-  return resolveSelectedProvider(byPage[modelId]);
+  return resolveSelectedProvider(selectedProviders[page]?.[modelId]);
 };
 
 // Reactive hooks for UI subscriptions
@@ -114,15 +112,11 @@ export const useSelectedProviderForModel = (
   );
 
 function resolveSelectedProvider(
-  provider: GenerationProvider | undefined,
-): GenerationProvider | undefined {
-  // Retired direct accounts must not reach generation or pricing requests,
-  // including when an older selection is still in state.
-  if (
-    provider === GenerationProvider.Sora ||
-    provider === GenerationProvider.WorldLabs
-  ) {
-    return GenerationProvider.Artcraft;
-  }
-  return provider;
+  _provider: GenerationProvider | undefined,
+): GenerationProvider {
+  // publik API is the only provider (the publik balance or the person's own key).
+  // No other provider may reach a generation request, including an older
+  // selection that is still in state, or a model picked before its default
+  // provider was set.
+  return GenerationProvider.Publik;
 }

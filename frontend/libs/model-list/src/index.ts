@@ -19,12 +19,8 @@ export * from "./lib/legacy/Models.js";
 export * from "./lib/lists/AllModels.js";
 export * from "./lib/lists/AllModelsById.js";
 export * from "./lib/lists/ImageModels.js";
-export * from "./lib/lists/VideoModels.js";
 export * from "./lib/classes/SplatModel.js";
-export * from "./lib/lists/SplatModels.js";
 export * from "./lib/classes/Object3DModel.js";
-export * from "./lib/lists/Object3DModels.js";
-export * from "./lib/loader/buildModelsFromListing.js";
 
 export * from "./lib/classes/videoOptions.js";
 
