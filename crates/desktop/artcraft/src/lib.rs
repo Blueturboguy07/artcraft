@@ -2,6 +2,9 @@ pub mod core;
 pub mod services;
 pub mod version;
 
+#[cfg(test)]
+mod no_cloud_tests;
+
 use log::error;
 
 use crate::core::commands::app_preferences::get_app_preferences_command::get_app_preferences_command;
