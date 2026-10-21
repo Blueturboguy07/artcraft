@@ -78,9 +78,6 @@
       "@storyteller/ui-generation-list": [
         "libs/components/generation-list/src/index.ts"
       ],
-      "@storyteller/ui-gravatar": [
-        "libs/components/gravatar/src/index.ts"
-      ],
       "@storyteller/ui-help-menu": [
         "libs/components/help-menu/src/index.ts"
       ],

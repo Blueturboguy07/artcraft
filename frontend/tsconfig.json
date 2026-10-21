@@ -97,9 +97,6 @@
       "path": "./libs/components/file-uploader"
     },
     {
-      "path": "./libs/components/gravatar"
-    },
-    {
       "path": "./libs/components/loading"
     },
     {
