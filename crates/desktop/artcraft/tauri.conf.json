@@ -15,7 +15,9 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       },
       "csp": {
         "default-src": [
@@ -24,10 +26,6 @@
           "'unsafe-inline'",
           "blob:",
           "data:",
-          "https://*.fakeyou.com",
-          "https://*.storyteller.ai",
-          "https://www.google-analytics.com",
-          "https://www.googletagmanager.com",
           "ipc://localhost",
           "tauri://localhost"
         ],
@@ -39,15 +37,11 @@
           "blob:",
           "data:",
           "http://ipc.localhost",
-          "https://*.clarity.ms",
-          "https://*.fakeyou.com",
-          "https://*.storyteller.ai",
           "https://asset.localhost",
           "https://unpkg.com/detect-gpu@5.0.70/",
-          "https://www.google-analytics.com",
-          "https://www.googletagmanager.com",
           "ipc://localhost",
-          "tauri://localhost"
+          "tauri://localhost",
+          "http://asset.localhost"
         ],
         "font-src": "*",
         "img-src": [
@@ -60,8 +54,6 @@
           "data:",
           "http://asset.localhost",
           "https://asset.localhost",
-          "https://*.fakeyou.com",
-          "https://*.storyteller.ai",
           "ipc://localhost",
           "tauri://localhost"
         ],
@@ -73,11 +65,7 @@
           "asset:",
           "blob:",
           "data:",
-          "https://*.clarity.ms",
-          "https://*.fakeyou.com",
-          "https://*.storyteller.ai",
           "https://*.unpkg.com",
-          "https://clarity.ms",
           "https://unpkg.com",
           "ipc://localhost",
           "tauri:",
@@ -89,11 +77,17 @@
           "'unsafe-inline'",
           "blob:",
           "data:",
-          "https://*.fakeyou.com",
-          "https://*.storyteller.ai",
           "https://fonts.googleapis.com",
           "ipc://localhost",
           "tauri://localhost"
+        ],
+        "media-src": [
+          "'self'",
+          "asset:",
+          "blob:",
+          "data:",
+          "http://asset.localhost",
+          "https://asset.localhost"
         ]
       }
     }
