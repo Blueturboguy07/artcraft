@@ -155,7 +155,7 @@ export type PublikVoice = (typeof PUBLIK_VOICES)[number];
 
 /**
  * How the image bytes travel to `publik_import_image_command`. Change this one line if Rust
- * takes a byte array: "base64" sends `data_base64`, "bytes" sends `bytes` (number[]).
+ * takes a byte array: "base64" sends `base64`, "bytes" sends `bytes` (number[]).
  */
 export const PUBLIK_IMPORT_ENCODING: "base64" | "bytes" = "base64";
 
@@ -165,7 +165,7 @@ export const publikImportImageRequest = (
   fileName: string,
 ): Record<string, unknown> =>
   PUBLIK_IMPORT_ENCODING === "base64"
-    ? { data_base64: bytesToBase64(bytes), file_name: fileName }
+    ? { base64: bytesToBase64(bytes), file_name: fileName }
     : { bytes: Array.from(bytes), file_name: fileName };
 
 /** Copy an image into the local library. Returns its token and `asset://` URL. */
@@ -173,7 +173,7 @@ export const PublikImportImage = async (
   file: Blob,
   fileName?: string,
 ): Promise<PublikImportedImage> => {
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  const bytes = await readBlobBytes(file);
   const name = fileName || (file instanceof File && file.name) || "image.png";
   return run<PublikImportedImage>("publik_import_image_command", {
     request: publikImportImageRequest(bytes, name),
@@ -197,6 +197,19 @@ export const PublikTranscribe = (path: string, language?: string) =>
   run<PublikTranscribeResult>("publik_transcribe_command", {
     request: language ? { path, language } : { path },
   });
+
+/** The bytes of a Blob. Uses FileReader where Blob.arrayBuffer is missing (older engines). */
+const readBlobBytes = async (blob: Blob): Promise<Uint8Array> => {
+  if (typeof blob.arrayBuffer === "function") {
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read the image."));
+    reader.readAsArrayBuffer(blob);
+  });
+};
 
 /** Base64 without the `data:` prefix. Works for large images (chunked). */
 export const bytesToBase64 = (bytes: Uint8Array): string => {

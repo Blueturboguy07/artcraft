@@ -4,8 +4,9 @@ import { SoundManager } from "@storyteller/soundboard";
 import { toast } from "@storyteller/ui-toaster";
 import { GenerationAction, GenerationModel, GenerationServiceProvider } from "./common";
 import { BasicEventWrapper } from "../../common/BasicEventWrapper";
+import { commandErrorMessage } from "@storyteller/tauri-api";
 
-type GenerationEnqueueFailureEvent = {
+export type GenerationEnqueueFailureEvent = {
   action: GenerationAction,
   service: GenerationServiceProvider,
   model?: GenerationModel | string,
@@ -21,7 +22,7 @@ export const useGenerationEnqueueFailureEvent = () => {
       unlisten = listen<BasicEventWrapper<GenerationEnqueueFailureEvent>>('generation-enqueue-failure-event', async (event) => {
         console.log("Generation enqueue failure event received:", event);
         await SoundManager.playEnqueueFailure();
-        const message = makeMessage(event.payload.data);
+        const message = generationEnqueueFailureMessage(event.payload.data);
         toast.error(message);
       });
 
@@ -40,22 +41,17 @@ export const useGenerationEnqueueFailureEvent = () => {
   }, []);
 }
 
-const makeMessage = (event: GenerationEnqueueFailureEvent) => {
-  if (!!event.reason) {
-    return event.reason;
-  }
-  switch (event.action) {
+// One plain sentence: Rust's reason when it is readable, else what failed and what to do.
+export const generationEnqueueFailureMessage = (event: GenerationEnqueueFailureEvent) =>
+  commandErrorMessage(event.reason, fallbackMessage(event.action));
+
+const fallbackMessage = (action: GenerationAction) => {
+  switch (action) {
     case GenerationAction.GenerateImage:
-      return "Couldn't enqueue image generation!";
-    case GenerationAction.GenerateVideo:
-      return "Couldn't enqueue video generation!";
-    case GenerationAction.RemoveBackground:
-      return "Couldn't enqueue background removal!";
-    case GenerationAction.ImageTo3d:
-      return "Couldn't enqueue 3D model generation!";
-    case GenerationAction.GenerateGaussian:
-      return "Couldn't enqueue 3D world generation!";
+      return "Could not start the image. Try again.";
+    case GenerationAction.GenerateAudio:
+      return "Could not start the audio. Try again.";
     default:
-      return "Couldn't enqueue generation!";
+      return "Could not start the request. Try again.";
   }
 }

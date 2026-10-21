@@ -32,6 +32,18 @@ describe("commandErrorMessage", () => {
     expect(commandErrorMessage("Type a prompt first.", FALLBACK)).toBe("Type a prompt first.");
   });
 
+  it("never shows a JavaScript programming error", () => {
+    expect(
+      commandErrorMessage(
+        new TypeError("Cannot read properties of undefined (reading 'invoke')"),
+        FALLBACK,
+      ),
+    ).toBe(FALLBACK);
+    expect(commandErrorMessage(new Error("Could not read the image."), FALLBACK)).toBe(
+      "Could not read the image.",
+    );
+  });
+
   it("falls back when the message is missing or empty", () => {
     expect(commandErrorMessage(undefined, FALLBACK)).toBe(FALLBACK);
     expect(commandErrorMessage({ status: "server_error" }, FALLBACK)).toBe(FALLBACK);

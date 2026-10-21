@@ -11,7 +11,7 @@ import { GenerationProvider } from "@storyteller/api-enums";
 export interface GenerateImageRequest {
   // API-owned options may be introduced independently of this desktop build.
   [key: string]: unknown;
-  // The provider to use (defaults to Artcraft/Storyteller).
+  // The provider to use. publik's build always sends publik.
   provider?: GenerationProvider;
 
   // The model to use.
@@ -71,6 +71,8 @@ export enum GenerateImageErrorType {
   NeedsGrokCredentials = "needs_grok_credentials",
   NeedsMidjourneyCredentials = "needs_midjourney_credentials",
   BillingIssue = "billing_issue",
+  // publik API is the provider, but AI is not set up on this computer yet.
+  NeedsPublikSetup = "needs_publik_setup",
 }
 
 export interface GenerateImageError extends CommandResult {

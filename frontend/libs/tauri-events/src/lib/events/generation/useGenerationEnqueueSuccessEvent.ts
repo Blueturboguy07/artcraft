@@ -42,16 +42,10 @@ export const useGenerationEnqueueSuccessEvent = () => {
 const makeMessage = (event: GenerationEnqueueSuccessEvent) => {
   switch (event.action) {
     case GenerationAction.GenerateImage:
-      return "Image generation enqueued!";
-    case GenerationAction.GenerateVideo:
-      return "Video generation enqueued!";
-    case GenerationAction.RemoveBackground:
-      return "Background removal enqueued!";
-    case GenerationAction.ImageTo3d:
-      return "3D model generation enqueued!";
-    case GenerationAction.GenerateGaussian:
-      return "3D world generation enqueued!";
+      return "Making your image. It shows here when it is ready.";
+    case GenerationAction.GenerateAudio:
+      return "Making your audio. It shows here when it is ready.";
     default:
-      return "Generation enqueued!";
+      return "Request started. The result shows here when it is ready.";
   }
 }

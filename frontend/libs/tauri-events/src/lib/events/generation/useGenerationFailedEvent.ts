@@ -4,8 +4,9 @@ import { SoundManager } from "@storyteller/soundboard";
 import { toast } from "@storyteller/ui-toaster";
 import { GenerationAction, GenerationModel, GenerationServiceProvider } from "./common";
 import { BasicEventWrapper } from "../../common/BasicEventWrapper";
+import { commandErrorMessage } from "@storyteller/tauri-api";
 
-type GenerationFailedEvent = {
+export type GenerationFailedEvent = {
   action: GenerationAction,
   service: GenerationServiceProvider,
   model?: GenerationModel | string,
@@ -21,7 +22,7 @@ export const useGenerationFailedEvent = () => {
       unlisten = listen<BasicEventWrapper<GenerationFailedEvent>>('generation-failed-event', async (event) => {
         console.log("Generation failed event received:", event);
         await SoundManager.playGenerationFailure();
-        const message = makeMessage(event.payload.data);
+        const message = generationFailedMessage(event.payload.data);
         toast.error(message);
       });
 
@@ -40,22 +41,17 @@ export const useGenerationFailedEvent = () => {
   }, []);
 }
 
-const makeMessage = (event: GenerationFailedEvent) => {
-  if (!!event.reason) {
-    return event.reason;
-  }
-  switch (event.action) {
+// One plain sentence: Rust's reason when it is readable, else what failed and what to do.
+export const generationFailedMessage = (event: GenerationFailedEvent) =>
+  commandErrorMessage(event.reason, fallbackMessage(event.action));
+
+const fallbackMessage = (action: GenerationAction) => {
+  switch (action) {
     case GenerationAction.GenerateImage:
-      return "Image generation failed!";
-    case GenerationAction.GenerateVideo:
-      return "Video generation failed!";
-    case GenerationAction.RemoveBackground:
-      return "Background removal failed!";
-    case GenerationAction.ImageTo3d:
-      return "3D model generation failed!";
-    case GenerationAction.GenerateGaussian:
-      return "3D world generation failed!";
+      return "Could not make the image. Try again.";
+    case GenerationAction.GenerateAudio:
+      return "Could not make the audio. Try again.";
     default:
-      return "Generation failed!";
+      return "The request failed. Try again.";
   }
 }

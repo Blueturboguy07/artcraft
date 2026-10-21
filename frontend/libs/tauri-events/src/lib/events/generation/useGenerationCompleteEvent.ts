@@ -40,21 +40,12 @@ export const useGenerationCompleteEvent = () => {
 }
 
 const makeMessage = (event: GenerationCompleteEvent) => {
-  if (!event.action) {
-    return "Generation complete!";
-  }
   switch (event.action) {
     case GenerationAction.GenerateImage:
-      return "Image generation complete!";
-    case GenerationAction.GenerateVideo:
-      return "Video generation complete!";
-    case GenerationAction.RemoveBackground:
-      return "Background removal complete!";
-    case GenerationAction.ImageTo3d:
-      return "3D model generation complete!";
-    case GenerationAction.GenerateGaussian:
-      return "3D world generation complete!";
+      return "Your image is ready.";
+    case GenerationAction.GenerateAudio:
+      return "Your audio is ready.";
     default:
-      return "Generation complete!";
+      return "Your result is ready.";
   }
 }
