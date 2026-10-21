@@ -11,8 +11,10 @@ pub const PUBLIK_APP_SLUG: &str = "artcraft";
 
 pub const PUBLIK_APP_NAME: &str = "ArtCraft";
 
-/// The gateway lines ArtCraft uses: image generation and edits, and chat for "Improve prompt".
-pub const PUBLIK_DIALECTS: &[&str] = &["images", "chat_completions"];
+/// The gateway lines ArtCraft uses, reported at provisioning: GPT Image 1 (`images`), chat for
+/// "Improve prompt" (`chat_completions`), Nano Banana (`gemini`), and speech and transcription
+/// (`audio`).
+pub const PUBLIK_DIALECTS: &[&str] = &["images", "chat_completions", "gemini", "audio"];
 
 /// The app's public `pat_` token. It is public by design: it can only mint capped keys that
 /// publik attributes to ArtCraft, and publik revokes it by timestamp. It lives at the repo root
@@ -41,6 +43,6 @@ mod tests {
     assert_eq!(info.slug, "artcraft");
     assert_eq!(info.version, ARTCRAFT_VERSION);
     assert!(info.app_token.trim().starts_with("pat_"));
-    assert!(info.dialects.contains(&"images"));
+    assert_eq!(info.dialects, &["images", "chat_completions", "gemini", "audio"]);
   }
 }

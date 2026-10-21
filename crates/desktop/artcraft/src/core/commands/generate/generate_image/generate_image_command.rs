@@ -1,199 +1,78 @@
-use crate::core::events::functional_events::show_provider_login_modal_event::ShowProviderLoginModalEvent;
-use crate::core::commands::generate::generate_image::providers::midjourney::handle_midjourney::handle_midjourney;
+//! `generate_image_command`: every image goes through publik API (or the person's own key) via
+//! `craft-publik`. There is no other provider and no fallback.
+//!
+//! The provider and the model are read from the raw request before it is parsed, so an unknown
+//! provider or model id gets one plain sentence, never a parse error or a response body.
+
+use log::{info, warn};
+use serde_json::{Map, Value};
+use tauri::AppHandle;
+
 use crate::core::commands::generate::generate_image::providers::publik::handle_publik::handle_publik;
-use crate::core::commands::generate::omni::{self, Modality, OmniRequest, OmniResult};
-use crate::core::commands::generate::omni::dispatch::{adapt_legacy_response, decode_native};
-use tauri::Manager;
-use crate::core::commands::enqueue::common::notify_frontend_of_errors::notify_frontend_of_errors;
-use crate::core::commands::enqueue::generate_error::{GenerateError, MissingCredentialsReason};
-use crate::core::commands::enqueue::task_enqueue_success::TaskEnqueueSuccess;
-use crate::core::commands::generate::generate_image::providers::artcraft::handle_artcraft;
-use crate::core::commands::generate::generate_image::providers::artcraft_router::handle_router::handle_router;
-use crate::core::commands::generate::generate_image::tauri_generate_image_request::{
-  TauriGenerateImageErrorType, TauriGenerateImageRequest, TauriGenerateImageResponse,
-};
+use crate::core::commands::generate::generate_image::tauri_generate_image_request::{TauriGenerateImageErrorType, TauriGenerateImageRequest, TauriGenerateImageResponse};
 use crate::core::commands::response::failure_response_wrapper::{CommandErrorResponseWrapper, CommandErrorStatus};
 use crate::core::commands::response::shorthand::Response;
-use crate::core::events::basic_sendable_event_trait::BasicSendableEvent;
-use crate::core::events::functional_events::credits_balance_changed_event::CreditsBalanceChangedEvent;
-use crate::core::events::generation_events::generation_enqueue_success_event::GenerationEnqueueSuccessEvent;
-use crate::core::providers::credentials::provider_credential_loading_cache::ProviderCredentialLoadingCache;
-use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
-use crate::core::state::task_database::TaskDatabase;
-use crate::services::storyteller::state::storyteller_credential_manager::StorytellerCredentialManager;
-use enums::common::generation_provider::GenerationProvider;
-use log::{error, info};
-use tauri::{AppHandle, State};
+use crate::services::publik::state::publik_image_model::PublikImageModel;
 
+const UNREADABLE_REQUEST_MESSAGE: &str = "ArtCraft could not read this image request. Check the prompt and the options, and try again.";
+
+type ImageCommandError = CommandErrorResponseWrapper<TauriGenerateImageErrorType, ()>;
+
+/// The frontend sends `{ request: TauriGenerateImageRequest }` with `provider: "publik"` and
+/// `model: "gpt_image_1" | "nano_banana"`.
 #[tauri::command]
-pub async fn generate_image_command(request: OmniRequest, app: AppHandle) -> OmniResult {
-  if request.uses_artcraft() && !request.uses_legacy_image_endpoint() {
-    return omni::generate(request, Modality::Image, &app).await;
-  }
-  adapt_legacy_response(generate_image_native(
-    decode_native(request)?, app.clone(),
-    app.state(), app.state(), app.state(), app.state(),
-  ).await)
+pub async fn generate_image_command(request: Map<String, Value>, app: AppHandle) -> Response<TauriGenerateImageResponse, TauriGenerateImageErrorType, ()> {
+  info!("generate_image_command called");
+  let (request, model) = route_image_request(request)?;
+  handle_publik(&request, model, &app).await
 }
 
-async fn generate_image_native(
-  request: TauriGenerateImageRequest,
-  app: AppHandle,
-  app_env_configs: State<'_, AppEnvConfigs>,
-  task_database: State<'_, TaskDatabase>,
-  storyteller_creds_manager: State<'_, StorytellerCredentialManager>,
-  credential_cache: State<'_, ProviderCredentialLoadingCache>,
-) -> Response<TauriGenerateImageResponse, TauriGenerateImageErrorType, ()> {
-
-  info!("generate_image_command called, request: {:?}", request);
-
-  let provider = request.provider.unwrap_or(GenerationProvider::Artcraft);
-
-  // publik API runs its own job and completes the task itself; it needs no ArtCraft account.
-  if provider == GenerationProvider::Publik {
-    return handle_publik(&request, &app).await;
-  }
-
-  let result = match provider {
-    GenerationProvider::Artcraft => {
-      handle_artcraft(
-        &request,
-        &app_env_configs,
-        &storyteller_creds_manager,
-      ).await
-    }
-    GenerationProvider::Midjourney => {
-      handle_midjourney(&request, &app_env_configs, &app.state(), &storyteller_creds_manager).await
-    }
-    // All other providers go through the router.
-    other => {
-      handle_router(
-        &request,
-        other,
-        &app_env_configs,
-        &credential_cache,
-        &storyteller_creds_manager,
-      ).await
-    }
-  };
-
-  match result {
-    Ok(success) => handle_success_behavior(&app, &task_database, &request, success).await,
-    Err(err) => handle_error_behavior(&app, err).await,
-  }
+/// Pick the publik image line, then parse the rest of the request.
+pub fn route_image_request(fields: Map<String, Value>) -> Result<(TauriGenerateImageRequest, PublikImageModel), ImageCommandError> {
+  let model = PublikImageModel::route(&fields).map_err(bad_input)?;
+  let request = serde_json::from_value::<TauriGenerateImageRequest>(Value::Object(fields)).map_err(|err| {
+    warn!("generate_image_command could not parse the request: {}", err);
+    bad_input(UNREADABLE_REQUEST_MESSAGE)
+  })?;
+  Ok((request, model))
 }
 
-// ── Result mapping ──
-
-async fn handle_success_behavior(
-  app: &AppHandle,
-  task_database: &TaskDatabase,
-  request: &TauriGenerateImageRequest,
-  success: TaskEnqueueSuccess,
-) -> Response<TauriGenerateImageResponse, TauriGenerateImageErrorType, ()> {
-
-
-  // Insert into task database
-  let db_result = success
-      .insert_into_task_database_with_frontend_payload(
-        &task_database,
-        request.frontend_caller,
-        request.frontend_subscriber_id.as_deref(),
-        request.frontend_subscriber_payload.as_deref(),
-      )
-      .await;
-
-  if let Err(err) = db_result {
-    error!("Failed to create task in database: {:?}", err);
-  }
-
-  /*
-  let usage_type = if is_image_to_image {
-    ArtcraftUsageType::ImageToResult
-  } else {
-    ArtcraftUsageType::TextToResult
-  };
-
-  if let Err(err) = artcraft_usage_tracker.record_image_generation(num_images, usage_type, ArtcraftUsagePage::ImagePage) {
-    // NB: Fail open.
-    warn!("Failed to report usage: {:?}", err);
-  }
-   */
-
-  let event = GenerationEnqueueSuccessEvent {
-    action: success.to_frontend_event_action(),
-    service: success.to_frontend_event_service(),
-    model: success.model,
-  };
-
-  if let Err(err) = event.send(&app) {
-    error!("Failed to emit event: {:?}", err);
-  }
-
-  CreditsBalanceChangedEvent{}.send_infallible(&app);
-
-  Ok(TauriGenerateImageResponse {}.into())
+fn bad_input(message: &str) -> ImageCommandError {
+  CommandErrorResponseWrapper { status: CommandErrorStatus::BadRequest, error_message: Some(message.to_string()), error_type: Some(TauriGenerateImageErrorType::BadInput), error_details: None }
 }
 
-async fn handle_error_behavior(
-  app: &AppHandle,
-  err: GenerateError,
-) -> Response<TauriGenerateImageResponse, TauriGenerateImageErrorType, ()> {
-  error!("generate_image_command error: {:?}", err);
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use serde_json::json;
 
-  notify_frontend_of_errors(&app, &err).await;
-  if matches!(&err, GenerateError::MissingCredentials(MissingCredentialsReason::NeedsMidjourneyCredentials | MissingCredentialsReason::NeedsMidjourneyUserId | MissingCredentialsReason::NeedsMidjourneyUserInfo)) {
-    ShowProviderLoginModalEvent::send_for_provider(GenerationProvider::Midjourney, app);
+  use crate::services::publik::state::publik_image_model::IMAGE_ROUTE_MESSAGE;
+
+  #[test]
+  fn other_providers_and_nano_banana_pro_get_one_sentence_and_no_body() {
+    let cases = [
+      json!({"provider": "artcraft", "model": "nano_banana_pro", "prompt": "a cat"}),
+      json!({"provider": "fal", "model": "flux_pro_11", "prompt": "a cat"}),
+      json!({"provider": "midjourney", "model": "midjourney", "prompt": "a cat"}),
+      // The 401 regression: no provider and the default model used to reach ArtCraft's cloud.
+      json!({"model": "nano_banana_pro", "prompt": "a cat"}),
+      json!({"provider": "publik", "model": "nano_banana_pro", "prompt": "a cat"}),
+    ];
+    for case in cases {
+      let err = route_image_request(case.as_object().unwrap().clone()).err().unwrap();
+      let serialized = serde_json::to_value(&err).unwrap();
+      assert_eq!(serialized, json!({"status": "bad_request", "error_type": "bad_input", "error_message": IMAGE_ROUTE_MESSAGE}), "{case}");
+    }
   }
 
-  let error_type = match &err {
-    GenerateError::BadInput(_) => TauriGenerateImageErrorType::BadInput,
-    GenerateError::MissingCredentials(MissingCredentialsReason::NeedsFalApiKey) => TauriGenerateImageErrorType::NeedsFalApiKey,
-    GenerateError::MissingCredentials(MissingCredentialsReason::NeedsGrokCredentials) => TauriGenerateImageErrorType::NeedsGrokCredentials,
-    GenerateError::MissingCredentials(MissingCredentialsReason::NeedsMidjourneyCredentials | MissingCredentialsReason::NeedsMidjourneyUserId | MissingCredentialsReason::NeedsMidjourneyUserInfo) => TauriGenerateImageErrorType::NeedsMidjourneyCredentials,
-    GenerateError::MissingCredentials(_) => TauriGenerateImageErrorType::NeedsStorytellerCredentials,
-    GenerateError::NoProviderAvailable => TauriGenerateImageErrorType::NoProviderAvailable,
-    GenerateError::BillingIssue(_) => TauriGenerateImageErrorType::BillingIssue,
-    _ => TauriGenerateImageErrorType::ServerError,
-  };
+  #[test]
+  fn publik_requests_parse_with_their_model() {
+    let (request, model) = route_image_request(json!({"provider": "publik", "model": "nano_banana", "prompt": "a cat", "batch_size": 2}).as_object().unwrap().clone()).ok().unwrap();
+    assert_eq!(model, PublikImageModel::NanoBanana);
+    assert_eq!(request.prompt.as_deref(), Some("a cat"));
+    assert_eq!(request.batch_size, Some(2));
 
-  // TODO:
-  /*
-    let mut status = CommandErrorStatus::ServerError;
-    let mut error_type = EnqueueTextToImageErrorType::ServerError;
-    let mut error_message = "A server error occurred. Please try again. If it continues, please tell our staff about the problem.";
-
-    match err {
-      GenerateError::BadInput(BadInputReason::NoModelSpecified) => {
-        status = CommandErrorStatus::BadRequest;
-        error_type = EnqueueTextToImageErrorType::ModelNotSpecified;
-        error_message = "No model specified for image generation";
-      }
-      GenerateError::NoProviderAvailable => {
-        status = CommandErrorStatus::ServerError;
-        error_type = EnqueueTextToImageErrorType::NoProviderAvailable;
-        error_message = "No configured provider available for image generation";
-      }
-      GenerateError::MissingCredentials(MissingCredentialsReason::NeedsFalApiKey) => {
-        status = CommandErrorStatus::Unauthorized;
-        error_type = EnqueueTextToImageErrorType::NeedsFalApiKey;
-        error_message = "You need to set a FAL api key";
-      },
-      _ => {}, // Fall-through
-    }
-
-    Err(CommandErrorResponseWrapper {
-      status,
-      error_message: Some(error_message.to_string()),
-      error_type: Some(error_type),
-      error_details: None,
-    })
-   */
-
-  Err(CommandErrorResponseWrapper {
-    status: CommandErrorStatus::ServerError,
-    error_message: Some(format!("{:?}", err)),
-    error_type: Some(error_type),
-    error_details: None,
-  })
+    let err = route_image_request(json!({"provider": "publik", "model": "gpt_image_1", "batch_size": "two"}).as_object().unwrap().clone()).err().unwrap();
+    assert_eq!(err.error_message.as_deref(), Some(UNREADABLE_REQUEST_MESSAGE));
+  }
 }

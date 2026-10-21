@@ -32,6 +32,28 @@ pub fn suggested_download_filename(
   download_time: DateTime<Local>,
 ) -> String {
   let extension = Path::new(url.path()).extension().and_then(|ext| ext.to_str()).unwrap_or("bin");
+  suggested_filename_with_extension(prefs, maybe_model, maybe_batch_index, download_time, extension)
+}
+
+/// The download name for a file that is already on this computer (its extension is kept).
+pub fn suggested_local_download_filename(
+  source: &Path,
+  prefs: &AppPreferences,
+  maybe_model: Option<&str>,
+  maybe_batch_index: Option<usize>,
+  download_time: DateTime<Local>,
+) -> String {
+  let extension = source.extension().and_then(|ext| ext.to_str()).unwrap_or("bin");
+  suggested_filename_with_extension(prefs, maybe_model, maybe_batch_index, download_time, extension)
+}
+
+fn suggested_filename_with_extension(
+  prefs: &AppPreferences,
+  maybe_model: Option<&str>,
+  maybe_batch_index: Option<usize>,
+  download_time: DateTime<Local>,
+  extension: &str,
+) -> String {
   let model_slug = model_slug_from_model_type_str(maybe_model.unwrap_or("artcraft"));
   prefs.preferred_download_filename.build_filename(&DownloadFilenameParts {
     model_slug: &model_slug,
@@ -39,6 +61,20 @@ pub fn suggested_download_filename(
     maybe_batch_index,
     extension,
   })
+}
+
+/// Copy a file on this computer into the download directory, with the same naming and
+/// no-overwrite rules as a URL download.
+pub fn copy_local_file_with_filename(source: &Path, directory: &Path, filename: &str) -> Result<PathBuf, ArtcraftError> {
+  check_url_file_name_for_downloadability(filename)?;
+  std::fs::create_dir_all(directory)?;
+  let mut temporary = NamedTempFile::new_in(directory)?;
+  let mut input = std::fs::File::open(source)?;
+  std::io::copy(&mut input, temporary.as_file_mut())?;
+  temporary.as_file().sync_all()?;
+  let path = persist_download(temporary, directory, filename)?;
+  info!("Copied a local file to {:?}", path);
+  Ok(path)
 }
 
 /// Stream to a temporary file in the destination directory, then publish the

@@ -1,8 +1,13 @@
 pub mod publik_close_setup_command;
+pub mod publik_command_error;
 pub mod publik_dismiss_notice_command;
 pub mod publik_forget_key_command;
 pub mod publik_get_status_command;
+pub mod publik_import_image_command;
 pub mod publik_improve_prompt_command;
 pub mod publik_link_computer_command;
+pub mod publik_list_results_command;
 pub mod publik_mark_first_card_shown_command;
 pub mod publik_set_own_key_command;
+pub mod publik_speech_command;
+pub mod publik_transcribe_command;

@@ -1,23 +1,25 @@
-use crate::core::api_adapters::aspect_ratio::common_aspect_ratio::CommonAspectRatio;
-use crate::core::artcraft_error::ArtcraftError;
-use crate::core::commands::response::failure_response_wrapper::{CommandErrorResponseWrapper, CommandErrorStatus};
-use crate::core::commands::response::shorthand::{Response, ResponseOrErrorType};
-use crate::core::commands::response::success_response_wrapper::SerializeMarker;
-use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
-use crate::core::state::app_preferences::app_preferences::AppPreferences;
-use crate::core::state::data_dir::app_data_root::AppDataRoot;
-use crate::core::utils::download_url_to_temp_dir::download_url_to_temp_dir;
-use crate::core::utils::download_url_to_user_download_dir::download_url_to_user_download_dir;
-use anyhow::anyhow;
+//! `download_media_file_command`: copy a publik file (an image, a batch of images, or an MP3)
+//! into the person's download folder, with the same names and folder as every other download.
+//! Files live on this computer only; there is no cloud lookup.
+
 use log::{error, info};
 use serde_derive::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::str::FromStr;
-use artcraft_client::endpoints::media_files::get_media_file::get_media_file;
-use tauri::{AppHandle, State};
+use tauri::State;
 use tokens::tokens::media_files::MediaFileToken;
-use crate::core::state::app_preferences::app_preferences_manager::AppPreferencesManager;
 
+use crate::core::commands::response::failure_response_wrapper::{CommandErrorResponseWrapper, CommandErrorStatus};
+use crate::core::commands::response::shorthand::ResponseOrErrorType;
+use crate::core::commands::response::success_response_wrapper::SerializeMarker;
+use crate::core::state::app_preferences::app_preferences_manager::AppPreferencesManager;
+use crate::core::state::data_dir::app_data_root::AppDataRoot;
+use crate::services::publik::state::publik_local_store::{is_local_token, PublikLocalStore};
+use crate::services::publik::utils::copy_to_download_dir::copy_to_download_dir;
+
+pub const DOWNLOAD_NOT_LOCAL_MESSAGE: &str = "This build keeps files on this computer only. ArtCraft cannot download this file.";
+const COPY_FAILED_MESSAGE: &str = "ArtCraft could not save the file in your download folder. Check the folder in Settings and try again.";
+
+/// `{ request: { media_token } }`: a local token (`publik_<task>_<n>`, `publik_batch_<task>` or
+/// `publik_import_<id>`).
 #[derive(Deserialize, Debug)]
 pub struct DownloadMediaFileRequest {
   pub media_token: MediaFileToken,
@@ -25,6 +27,8 @@ pub struct DownloadMediaFileRequest {
 
 #[derive(Serialize)]
 pub struct DownloadMediaFileSuccessResponse {
+  /// Where the copies went.
+  pub paths: Vec<String>,
 }
 
 impl SerializeMarker for DownloadMediaFileSuccessResponse {}
@@ -32,73 +36,37 @@ impl SerializeMarker for DownloadMediaFileSuccessResponse {}
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum DownloadMediaFileErrorType {
+  /// The token is not a file on this computer.
+  NotLocal,
   FilesystemError,
-  NetworkError,
-  UnknownError,
 }
-
 
 #[tauri::command]
 pub async fn download_media_file_command(
   request: DownloadMediaFileRequest,
-  app: AppHandle,
   app_prefs: State<'_, AppPreferencesManager>,
   app_data_root: State<'_, AppDataRoot>,
-  app_env_configs: State<'_, AppEnvConfigs>,
+  store: State<'_, PublikLocalStore>,
 ) -> ResponseOrErrorType<DownloadMediaFileSuccessResponse, DownloadMediaFileErrorType> {
-
   info!("download_media_file_command called");
-
-  info!("request: {:?}", request);
-
-  let result = handle_request(
-    request,
-    &app,
-    &app_prefs,
-    &app_data_root,
-    &app_env_configs,
-  ).await;
-
-  if let Err(err) = result {
-    error!("Error downloading media: {:?}", err);
-    // TODO: This error is semantically incorrect - just trying to get the code done
-    return Err(CommandErrorResponseWrapper {
-      status: CommandErrorStatus::ServerError,
-      error_message: Some("error downloading file".to_string()),
-      error_type: Some(DownloadMediaFileErrorType::UnknownError),
-      error_details: None,
-    });
+  let token = request.media_token.as_str();
+  if !is_local_token(token) {
+    return Err(download_error(CommandErrorStatus::BadRequest, DownloadMediaFileErrorType::NotLocal, DOWNLOAD_NOT_LOCAL_MESSAGE));
   }
-
-  Ok(DownloadMediaFileSuccessResponse {}.into())
+  let files = store.resolve_files(token).map_err(|message| download_error(CommandErrorStatus::BadRequest, DownloadMediaFileErrorType::NotLocal, &message))?;
+  let model_id = store.record_for_token(token).map(|record| record.model.as_str()).unwrap_or("artcraft");
+  let prefs = app_prefs.get_clone().map_err(|err| {
+    error!("Could not read the preferences: {:?}", err);
+    download_error(CommandErrorStatus::ServerError, DownloadMediaFileErrorType::FilesystemError, COPY_FAILED_MESSAGE)
+  })?;
+  let copied = copy_to_download_dir(&app_data_root, &prefs, model_id, &files).map_err(|err| {
+    error!("Could not copy {} to the download folder: {:?}", token, err);
+    download_error(CommandErrorStatus::ServerError, DownloadMediaFileErrorType::FilesystemError, COPY_FAILED_MESSAGE)
+  })?;
+  info!("Copied {} file(s) to the download folder", copied.len());
+  Ok(DownloadMediaFileSuccessResponse { paths: copied.iter().map(|path| path.to_string_lossy().into_owned()).collect() }.into())
 }
 
-
-pub async fn handle_request(
-  request: DownloadMediaFileRequest,
-  app: &AppHandle,
-  app_prefs: &AppPreferencesManager,
-  app_data_root: &AppDataRoot,
-  app_env_configs: &AppEnvConfigs
-) -> Result<(), ArtcraftError> {
-
-  let app_prefs = app_prefs.get_clone()?;
-
-  // TODO: Api should return the extension and suggested filename so we can better construct something.
-  let media_file = get_media_file(
-    &app_env_configs.storyteller_host,
-    &request.media_token,
-  ).await?;
-
-  let asset_url = media_file.media_file.media_links.cdn_url;
-
-  let download_path = download_url_to_user_download_dir(
-    &asset_url,
-    app_data_root,
-    &app_prefs
-  ).await?;
-
-  info!("downloaded to: {:?}", download_path);
-
-  Ok(())
+fn download_error(status: CommandErrorStatus, error_type: DownloadMediaFileErrorType, message: &str) -> CommandErrorResponseWrapper<DownloadMediaFileErrorType, ()> {
+  CommandErrorResponseWrapper { status, error_message: Some(message.to_string()), error_type: Some(error_type), error_details: None }
 }

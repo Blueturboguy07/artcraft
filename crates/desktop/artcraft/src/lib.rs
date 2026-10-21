@@ -61,12 +61,17 @@ use crate::services::publik::commands::publik_close_setup_command::publik_close_
 use crate::services::publik::commands::publik_dismiss_notice_command::publik_dismiss_notice_command;
 use crate::services::publik::commands::publik_forget_key_command::publik_forget_key_command;
 use crate::services::publik::commands::publik_get_status_command::publik_get_status_command;
+use crate::services::publik::commands::publik_import_image_command::publik_import_image_command;
 use crate::services::publik::commands::publik_improve_prompt_command::publik_improve_prompt_command;
+use crate::services::publik::commands::publik_list_results_command::publik_list_results_command;
+use crate::services::publik::commands::publik_speech_command::publik_speech_command;
+use crate::services::publik::commands::publik_transcribe_command::publik_transcribe_command;
 use crate::services::publik::commands::publik_link_computer_command::publik_link_computer_command;
 use crate::services::publik::commands::publik_mark_first_card_shown_command::publik_mark_first_card_shown_command;
 use crate::services::publik::commands::publik_set_own_key_command::publik_set_own_key_command;
 use crate::services::publik::state::publik_ai_state::PublikAiState;
 use crate::services::publik::state::publik_app_info::publik_app_info;
+use crate::services::publik::state::publik_local_store::PublikLocalStore;
 use crate::services::sora::commands::check_sora_session_command::check_sora_session_command;
 use crate::services::sora::commands::open_sora_login_command::open_sora_login_command;
 use crate::services::sora::commands::sora_get_credential_info_command::sora_get_credential_info_command;
@@ -164,6 +169,9 @@ pub fn run() {
   // ArtCraft's other settings; publik's key lives in publik's own credential file.
   let publik_ai_state = PublikAiState::new(publik_app_info(Some(app_data_root.settings_dir().path().to_path_buf())));
 
+  // Everything publik makes or receives stays in `~/Artcraft/publik`.
+  let publik_local_store = PublikLocalStore::new(app_data_root.path());
+
   let artcraft_usage_tracker = ArtcraftUsageTracker::new();
   let artcraft_usage_tracker_2 = artcraft_usage_tracker.clone();
 
@@ -236,6 +244,7 @@ pub fn run() {
     .manage(worldlabs_bearer_bridge)
     .manage(provider_credential_cache)
     .manage(publik_ai_state)
+    .manage(publik_local_store)
     .manage(worldlabs_creds_manager);
 
   // TODO: Break this out into another module, because RustRover/IntelliJ lags with these macros.
@@ -273,7 +282,11 @@ pub fn run() {
     publik_dismiss_notice_command,
     publik_forget_key_command,
     publik_get_status_command,
+    publik_import_image_command,
     publik_improve_prompt_command,
+    publik_list_results_command,
+    publik_speech_command,
+    publik_transcribe_command,
     publik_link_computer_command,
     publik_mark_first_card_shown_command,
     publik_set_own_key_command,

@@ -1,33 +1,26 @@
 //! The background half of a publik API image request.
 //!
 //! The job calls publik API (blocking, through the system `curl`), keeps each image as a PNG in
-//! `~/Artcraft/downloads/publik`, and then completes the task the way other providers do:
+//! `~/Artcraft/publik/results`, writes the task's sidecar, and completes the task with the local
+//! files. Nothing goes to a cloud library: the feed shows the PNGs through `asset:` URLs.
 //!
-//! - Signed in to ArtCraft: the images are uploaded into the ArtCraft library (with the prompt)
-//!   and the task completes through `notify_frontend_of_completion`, exactly like fal results.
-//! - Not signed in: the task completes with the local files. The feed shows them through the
-//!   same completion events, with `asset:` URLs to the PNGs on disk.
+//! Every batch carries the local batch token `publik_batch_<task>`, and the completion event
+//! carries one entry per image, so the UI shows all of them.
 
 use std::path::{Path, PathBuf};
 
-use artcraft_api_defs::prompts::create_prompt::CreatePromptRequest;
-use artcraft_api_defs::utils::media_links_to_thumbnail_template::media_links_to_thumbnail_template;
-use artcraft_client::credentials::storyteller_credential_set::StorytellerCredentialSet;
-use artcraft_client::endpoints::media_files::get_media_file::get_media_file;
-use artcraft_client::endpoints::media_files::upload_image_media_file_from_file::{upload_image_media_file_from_file, UploadImageFromFileArgs};
-use artcraft_client::endpoints::prompts::create_prompt::create_prompt;
-use craft_publik::client;
-use enums::common::generation::common_model_type::CommonModelType;
+use chrono::Utc;
+use craft_publik::client::{self, Fail, Reply};
+use craft_publik::Provider;
 use enums::common::generation_provider::GenerationProvider;
 use enums::tauri::tasks::task_failure_type::TaskFailureType;
 use enums::tauri::tasks::task_media_file_class::TaskMediaFileClass;
-use enums::tauri::tasks::task_model_type::TaskModelType;
 use enums::tauri::tasks::task_status::TaskStatus;
 use enums::tauri::tasks::task_type::TaskType;
 use enums::tauri::ux::tauri_command_caller::TauriCommandCaller;
 use anyhow::anyhow;
 use errors::AnyhowResult;
-use image::ImageFormat;
+use image::{GenericImageView, ImageFormat};
 use log::{error, info, warn};
 use sqlite_tasks::queries::task::Task;
 use sqlite_tasks::queries::update_successful_task_status_with_metadata::{update_successful_task_status_with_metadata, UpdateSuccessfulTaskArgs};
@@ -37,25 +30,21 @@ use tokens::tokens::batch_generations::BatchGenerationToken;
 use tokens::tokens::media_files::MediaFileToken;
 use tokens::tokens::sqlite::tasks::TaskId;
 use url::Url;
-use uuid_utils::uuid::generate_random_uuid;
 
 use crate::core::events::basic_sendable_event_trait::BasicSendableEvent;
 use crate::core::events::functional_events::text_to_image_generation_complete_event::{GeneratedImage, TextToImageGenerationCompleteEvent};
-use crate::core::events::generation_events::common::{GenerationAction, GenerationModel, GenerationServiceProvider};
+use crate::core::events::generation_events::common::{GenerationAction, GenerationServiceProvider};
 use crate::core::events::generation_events::generation_complete_event::GenerationCompleteEvent;
 use crate::core::events::generation_events::generation_failed_event::GenerationFailedEvent;
-use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
+use crate::core::state::app_preferences::app_preferences_manager::AppPreferencesManager;
 use crate::core::state::data_dir::app_data_root::AppDataRoot;
 use crate::core::state::data_dir::trait_data_subdir::DataSubdir;
 use crate::core::state::task_database::TaskDatabase;
-use crate::core::threads::third_party_task_polling_thread::events::notify_frontend_of_completion::{notify_frontend_of_completion, CompletionData};
-use crate::core::utils::auto_download::{auto_download_task, clear_auto_download_checkpoint};
 use crate::services::publik::state::publik_ai_state::PublikAiState;
+use crate::services::publik::state::publik_image_model::PublikImageModel;
 use crate::services::publik::state::publik_image_size::PublikImageSize;
-use crate::services::storyteller::state::storyteller_credential_manager::StorytellerCredentialManager;
-
-/// Under the app's downloads directory (`~/Artcraft/downloads`).
-pub const PUBLIK_IMAGE_DIR: &str = "publik";
+use crate::services::publik::state::publik_local_store::{PublikLocalStore, PublikResultFile, PublikResultRecord};
+use crate::services::publik::utils::copy_to_download_dir::copy_to_download_dir;
 
 /// The task database trims failure messages at 255 bytes; trim on a character boundary first.
 const MAX_FAILURE_MESSAGE_BYTES: usize = 250;
@@ -63,6 +52,7 @@ const MAX_FAILURE_MESSAGE_BYTES: usize = 250;
 pub struct PublikImageJob {
   pub task_id: TaskId,
   pub task_type: TaskType,
+  pub model: PublikImageModel,
   pub prompt: String,
   pub size: PublikImageSize,
   pub count: u32,
@@ -76,67 +66,89 @@ pub struct PublikImageJob {
 pub enum PublikEditSource {
   /// Canvas pixels (PNG, JPEG or WebP).
   Bytes(Vec<u8>),
-  /// An image in the ArtCraft library.
-  MediaFile(MediaFileToken),
+  /// A PNG in the publik directory: an imported image or an earlier result.
+  File(PathBuf),
+}
+
+/// One image on disk.
+struct SavedImage {
+  token: String,
+  path: PathBuf,
+  width: u32,
+  height: u32,
+}
+
+/// The edit source as a PNG file, and whether the job made it (and removes it afterwards).
+struct SourceFile {
+  path: PathBuf,
+  temporary: bool,
 }
 
 pub async fn run_publik_image_job(app: AppHandle, job: PublikImageJob) {
   let task = job.task();
-  info!("[publik] Task {} started: {} image(s), {}", task.id.as_str(), job.count, job.size.as_size());
+  info!("[publik] Task {} started: {} image(s), {}, {}", task.id.as_str(), job.count, job.model.model_id(), job.size.as_size());
   match make_images(&app, &job).await {
-    Ok(paths) => complete(&app, &task, &job, &paths).await,
-    Err(message) => fail(&app, &task, &message).await,
+    Ok(images) => {
+      if let Err(err) = complete(&app, &task, &job, &images).await {
+        error!("[publik] Could not complete task {}: {:?}", task.id.as_str(), err);
+      }
+    },
+    Err(message) => fail(&app, &task, job.model, &message).await,
   }
 }
 
 impl PublikImageJob {
   /// The task row as `create_task` wrote it.
   fn task(&self) -> Task {
-    Task { id: self.task_id.clone(), status: TaskStatus::Pending, task_type: self.task_type, model_type: Some(TaskModelType::GptImage1), provider: GenerationProvider::Publik, provider_job_id: None, queue_status_url: None, queue_response_url: None, prompt_token: None, frontend_caller: self.frontend_caller, frontend_subscriber_id: self.frontend_subscriber_id.clone(), frontend_subscriber_payload: self.frontend_subscriber_payload.clone() }
+    Task { id: self.task_id.clone(), status: TaskStatus::Pending, task_type: self.task_type, model_type: Some(self.model.task_model_type()), provider: GenerationProvider::Publik, provider_job_id: None, queue_status_url: None, queue_response_url: None, prompt_token: None, frontend_caller: self.frontend_caller, frontend_subscriber_id: self.frontend_subscriber_id.clone(), frontend_subscriber_payload: self.frontend_subscriber_payload.clone() }
   }
 }
 
 // ── Making the images ──
 
 /// Ok: the PNGs on disk (at least one). Err: the message the feed shows.
-async fn make_images(app: &AppHandle, job: &PublikImageJob) -> Result<Vec<PathBuf>, String> {
+async fn make_images(app: &AppHandle, job: &PublikImageJob) -> Result<Vec<SavedImage>, String> {
   let publik = app.state::<PublikAiState>().inner().clone();
+  let store = app.state::<PublikLocalStore>().inner().clone();
   let root = app.state::<AppDataRoot>().inner().clone();
-  let out_dir = root.downloads_dir().path().join(PUBLIK_IMAGE_DIR);
-  std::fs::create_dir_all(&out_dir).map_err(|err| format!("ArtCraft could not create {}: {err}", out_dir.display()))?;
+  let results_dir = store.results_dir();
+  std::fs::create_dir_all(&results_dir).map_err(|err| {
+    warn!("[publik] Could not create {}: {}", results_dir.display(), err);
+    "ArtCraft could not save on this computer. Check the free disk space and try again.".to_string()
+  })?;
 
-  let maybe_source_png = match &job.maybe_edit_source {
+  let maybe_source = match &job.maybe_edit_source {
     None => None,
-    Some(source) => Some(prepare_edit_source(app, source, &root, &job.task_id).await.map_err(|err| {
+    Some(source) => Some(prepare_edit_source(source, &root, &job.task_id).map_err(|err| {
       warn!("[publik] Could not prepare the image to edit: {:?}", err);
       "ArtCraft could not read the image to edit. Try another image.".to_string()
     })?),
   };
 
   let provider = publik.provider();
+  let model = job.model;
   let prompt = job.prompt.clone();
   let size = job.size.as_size();
   let count = job.count;
-  let file_stem = format!("publik_{}", job.task_id.as_str());
-  let source = maybe_source_png.clone();
+  let task_id = job.task_id.as_str().to_string();
+  let source_path = maybe_source.as_ref().map(|source| source.path.clone());
 
   let result = tauri::async_runtime::spawn_blocking(move || {
     let mut saved = Vec::new();
     let mut maybe_failure = None;
     for index in 1..=count {
-      let reply = match &source {
-        Some(path) => client::image_edit(&provider, &prompt, path, None, size),
-        None => client::image_generate(&provider, &prompt, size),
-      };
-      match reply {
+      match call_image_line(&provider, model, &prompt, size, source_path.as_deref()) {
         Ok(reply) => {
           publik.note_reply(&reply);
-          let path = out_dir.join(format!("{file_stem}_{index}.png"));
-          if let Err(err) = std::fs::write(&path, &reply.bytes) {
-            maybe_failure = Some(format!("ArtCraft could not save the image: {err}"));
-            break;
+          let token = PublikLocalStore::result_token(&task_id, index as usize);
+          let path = store.result_path(&token, "png");
+          match save_as_png(&reply.bytes, &path) {
+            Ok((width, height)) => saved.push(SavedImage { token, path, width, height }),
+            Err(message) => {
+              maybe_failure = Some(message);
+              break;
+            },
           }
-          saved.push(path);
         },
         Err(fail) => {
           info!("[publik] Image call failed (status {}, kind {})", fail.status, fail.kind);
@@ -150,8 +162,8 @@ async fn make_images(app: &AppHandle, job: &PublikImageJob) -> Result<Vec<PathBu
   })
   .await;
 
-  if let Some(path) = maybe_source_png {
-    let _ = std::fs::remove_file(path);
+  if let Some(source) = maybe_source.filter(|source| source.temporary) {
+    let _ = std::fs::remove_file(source.path);
   }
 
   match result {
@@ -170,124 +182,115 @@ async fn make_images(app: &AppHandle, job: &PublikImageJob) -> Result<Vec<PathBu
   }
 }
 
-/// The gateway takes a PNG file. Canvas bytes and library images are converted first.
-async fn prepare_edit_source(app: &AppHandle, source: &PublikEditSource, root: &AppDataRoot, task_id: &TaskId) -> AnyhowResult<PathBuf> {
-  let bytes = match source {
-    PublikEditSource::Bytes(bytes) => bytes.clone(),
-    PublikEditSource::MediaFile(token) => {
-      let config = app.state::<AppEnvConfigs>();
-      let media_file = get_media_file(&config.storyteller_host, token).await?;
-      let response = reqwest::get(media_file.media_file.media_links.cdn_url.clone()).await?.error_for_status()?;
-      response.bytes().await?.to_vec()
+/// One call on the image line the model names. Blocking.
+fn call_image_line(provider: &Provider, model: PublikImageModel, prompt: &str, size: &str, maybe_source: Option<&Path>) -> Result<Reply, Fail> {
+  match (model, maybe_source) {
+    (PublikImageModel::GptImage1, Some(source)) => client::image_edit(provider, prompt, source, None, size),
+    (PublikImageModel::GptImage1, None) => client::image_generate(provider, prompt, size),
+    (PublikImageModel::NanoBanana, Some(source)) => client::image_edit_nano(provider, prompt, source),
+    (PublikImageModel::NanoBanana, None) => client::image_generate_nano(provider, prompt),
+  }
+}
+
+/// The gateway takes a PNG file. Canvas bytes become a temporary PNG; local files are PNGs already.
+fn prepare_edit_source(source: &PublikEditSource, root: &AppDataRoot, task_id: &TaskId) -> AnyhowResult<SourceFile> {
+  match source {
+    PublikEditSource::File(path) => Ok(SourceFile { path: path.clone(), temporary: false }),
+    PublikEditSource::Bytes(bytes) => {
+      let path = root.temp_dir().path().join(format!("publik_edit_{}.png", task_id.as_str()));
+      image::load_from_memory(bytes)?.save_with_format(&path, ImageFormat::Png)?;
+      Ok(SourceFile { path, temporary: true })
     },
-  };
-  let path = root.temp_dir().path().join(format!("publik_edit_{}.png", task_id.as_str()));
-  image::load_from_memory(&bytes)?.save_with_format(&path, ImageFormat::Png)?;
-  Ok(path)
+  }
+}
+
+/// GPT Image 1 sends PNG; Nano Banana may send JPEG. Every result is kept as a PNG.
+fn save_as_png(bytes: &[u8], path: &Path) -> Result<(u32, u32), String> {
+  let image = image::load_from_memory(bytes).map_err(|_| "publik API sent back an image that ArtCraft cannot read. Try again.".to_string())?;
+  let written = if image::guess_format(bytes).ok() == Some(ImageFormat::Png) { std::fs::write(path, bytes).map_err(|err| err.to_string()) } else { image.save_with_format(path, ImageFormat::Png).map_err(|err| err.to_string()) };
+  written.map_err(|err| {
+    warn!("[publik] Could not save {}: {}", path.display(), err);
+    "ArtCraft could not save the image on this computer. Check the free disk space and try again.".to_string()
+  })?;
+  Ok(image.dimensions())
 }
 
 // ── Completing the task ──
 
-async fn complete(app: &AppHandle, task: &Task, job: &PublikImageJob, paths: &[PathBuf]) {
-  let maybe_creds = app.state::<StorytellerCredentialManager>().get_credentials().ok().flatten();
-  if let Some(creds) = maybe_creds {
-    match complete_in_library(app, task, job, paths, &creds).await {
-      Ok(()) => return,
-      Err(err) => warn!("[publik] Upload to the ArtCraft library failed; keeping the local copy: {:?}", err),
-    }
-  }
-  if let Err(err) = complete_locally(app, task, paths).await {
-    error!("[publik] Could not complete task {}: {:?}", task.id.as_str(), err);
-  }
-}
+/// The PNGs on disk are the result: write the sidecar, copy to the download folder when
+/// "automatic downloads" is on, mark the task done, then tell the frontend.
+async fn complete(app: &AppHandle, task: &Task, job: &PublikImageJob, images: &[SavedImage]) -> AnyhowResult<()> {
+  let store = app.state::<PublikLocalStore>().inner().clone();
+  let task_id = task.id.as_str();
+  let batch_token = PublikLocalStore::batch_token(task_id);
+  let first = images.first().ok_or_else(|| anyhow!("No image was saved"))?;
 
-/// Signed in: the same path as fal results. Upload, record, then notify.
-async fn complete_in_library(app: &AppHandle, task: &Task, job: &PublikImageJob, paths: &[PathBuf], creds: &StorytellerCredentialSet) -> AnyhowResult<()> {
-  let config = app.state::<AppEnvConfigs>();
-  let task_database = app.state::<TaskDatabase>();
-  let host = &config.storyteller_host;
-
-  let prompt_request = CreatePromptRequest { uuid_idempotency_token: generate_random_uuid(), positive_prompt: Some(job.prompt.clone()), negative_prompt: None, model_type: Some(CommonModelType::GptImage1), generation_provider: None, maybe_generation_mode: None, maybe_aspect_ratio: None, maybe_resolution: None, maybe_batch_count: u8::try_from(paths.len()).ok(), maybe_generate_audio: None, maybe_duration_seconds: None };
-  let maybe_prompt_token = match create_prompt(host, Some(creds), prompt_request).await {
-    Ok(response) => Some(response.prompt_token),
-    Err(err) => {
-      warn!("[publik] Could not record the prompt (failing open): {:?}", err);
-      None
-    },
+  let record = PublikResultRecord {
+    task_id: task_id.to_string(),
+    created_at: Utc::now(),
+    model: job.model.result_model(),
+    prompt: job.prompt.clone(),
+    size: format!("{}x{}", first.width, first.height),
+    maybe_voice: None,
+    batch_token: batch_token.clone(),
+    images: images.iter().map(|image| PublikResultFile { token: image.token.clone(), file: file_name(&image.path), path: image.path.clone() }).collect(),
+    maybe_audio: None,
   };
-
-  let maybe_batch_token = (paths.len() > 1).then(BatchGenerationToken::generate);
-  let mut uploaded = Vec::new();
-  for path in paths {
-    let response = upload_image_media_file_from_file(UploadImageFromFileArgs { api_host: host, maybe_creds: Some(creds), path, is_intermediate_system_file: false, maybe_prompt_token: maybe_prompt_token.as_ref(), maybe_generation_provider: None, maybe_batch_token: maybe_batch_token.as_ref() }).await?;
-    uploaded.push(response.media_file_token);
-  }
-  let primary_token = uploaded.first().cloned().ok_or_else(|| anyhow!("No image was uploaded"))?;
-
-  let mut maybe_cdn_url = None;
-  let mut maybe_thumbnail_url_template = None;
-  match get_media_file(host, &primary_token).await {
-    Ok(response) => {
-      maybe_thumbnail_url_template = media_links_to_thumbnail_template(&response.media_file.media_links).map(|s| s.to_string());
-      maybe_cdn_url = Some(response.media_file.media_links.cdn_url);
-    },
-    Err(err) => warn!("[publik] Could not look up the uploaded image (failing open): {:?}", err),
+  if let Err(message) = store.write_record(&record) {
+    // Failing open: the images exist and the feed shows them; only the history misses them.
+    warn!("[publik] Could not write the sidecar for task {}: {}", task_id, message);
   }
 
-  // The local PNGs exist already; this copies the library files to the person's download folder
-  // when "automatic downloads" is on, exactly as for other providers.
-  let primary_url = maybe_cdn_url.as_ref().map(|url| url.to_string());
-  if let Err(err) = auto_download_task(app, task, maybe_batch_token.as_ref(), primary_url.as_deref(), Some(uploaded.len())).await {
-    warn!("[publik] Automatic download failed (failing open): {:?}", err);
-  }
+  auto_download(app, job.model, images);
 
-  let updated = update_successful_task_status_with_metadata(UpdateSuccessfulTaskArgs { db: task_database.get_connection(), task_id: &task.id, maybe_batch_token: maybe_batch_token.as_ref(), maybe_primary_media_file_token: Some(&primary_token), maybe_primary_media_file_class: Some(TaskMediaFileClass::Image), maybe_primary_media_file_cdn_url: primary_url.as_deref(), maybe_primary_media_file_thumbnail_url_template: maybe_thumbnail_url_template.as_deref() }).await?;
-
-  if updated {
-    clear_auto_download_checkpoint(app, task);
-    let completion = CompletionData { primary_media_file_token: primary_token, maybe_cdn_url, maybe_thumbnail_url_template, maybe_batch_token, media_class: TaskMediaFileClass::Image };
-    notify_frontend_of_completion(app, host, Some(creds), task, &completion).await;
-  }
-  info!("[publik] Task {} is in the ArtCraft library", task.id.as_str());
-  Ok(())
-}
-
-/// Not signed in to ArtCraft: the PNGs on disk are the result.
-async fn complete_locally(app: &AppHandle, task: &Task, paths: &[PathBuf]) -> AnyhowResult<()> {
-  let images = paths
+  let generated_images = images
     .iter()
-    .enumerate()
-    .filter_map(|(index, path)| {
-      let url = local_asset_url(path)?;
-      let token = MediaFileToken::new_from_str(&format!("publik_{}_{}", task.id.as_str(), index + 1));
-      Some((token, url))
-    })
+    .filter_map(|image| Some(GeneratedImage { media_token: MediaFileToken::new_from_str(&image.token), cdn_url: local_asset_url(&image.path)?, maybe_thumbnail_template: None }))
     .collect::<Vec<_>>();
-  let (primary_token, primary_url) = images.first().cloned().ok_or_else(|| anyhow!("No local image URL"))?;
+  let primary = generated_images.first().ok_or_else(|| anyhow!("No local image URL"))?;
+  let primary_url = primary.cdn_url.to_string();
+  let batch = BatchGenerationToken::new_from_str(&batch_token);
 
   let task_database = app.state::<TaskDatabase>();
-  let primary_url_string = primary_url.to_string();
-  let updated = update_successful_task_status_with_metadata(UpdateSuccessfulTaskArgs { db: task_database.get_connection(), task_id: &task.id, maybe_batch_token: None, maybe_primary_media_file_token: Some(&primary_token), maybe_primary_media_file_class: Some(TaskMediaFileClass::Image), maybe_primary_media_file_cdn_url: Some(&primary_url_string), maybe_primary_media_file_thumbnail_url_template: None }).await?;
+  let updated = update_successful_task_status_with_metadata(UpdateSuccessfulTaskArgs { db: task_database.get_connection(), task_id: &task.id, maybe_batch_token: Some(&batch), maybe_primary_media_file_token: Some(&primary.media_token), maybe_primary_media_file_class: Some(TaskMediaFileClass::Image), maybe_primary_media_file_cdn_url: Some(&primary_url), maybe_primary_media_file_thumbnail_url_template: None }).await?;
   if !updated {
     return Ok(());
   }
 
-  GenerationCompleteEvent { action: Some(GenerationAction::GenerateImage), service: GenerationServiceProvider::Publik, model: Some(GenerationModel::GptImage1) }.send_infallible(app);
+  GenerationCompleteEvent { action: Some(GenerationAction::GenerateImage), service: GenerationServiceProvider::Publik, model: Some(job.model.generation_model()) }.send_infallible(app);
 
   // The create pages and the canvas pages all listen for this event, keyed by subscriber id.
-  TextToImageGenerationCompleteEvent { generated_images: images.into_iter().map(|(media_token, cdn_url)| GeneratedImage { media_token, cdn_url, maybe_thumbnail_template: None }).collect(), maybe_frontend_subscriber_id: task.frontend_subscriber_id.clone(), maybe_frontend_subscriber_payload: task.frontend_subscriber_payload.clone() }.send_infallible(app);
-  info!("[publik] Task {} completed with local files", task.id.as_str());
+  TextToImageGenerationCompleteEvent { generated_images, maybe_frontend_subscriber_id: task.frontend_subscriber_id.clone(), maybe_frontend_subscriber_payload: task.frontend_subscriber_payload.clone() }.send_infallible(app);
+  info!("[publik] Task {} completed with {} local file(s)", task_id, images.len());
   Ok(())
 }
 
-async fn fail(app: &AppHandle, task: &Task, message: &str) {
+/// "Automatic downloads" copies each result into the person's download folder. Failing open.
+fn auto_download(app: &AppHandle, model: PublikImageModel, images: &[SavedImage]) {
+  let prefs = match app.state::<AppPreferencesManager>().get_clone() {
+    Ok(prefs) => prefs,
+    Err(err) => {
+      warn!("[publik] Could not read the preferences for automatic downloads: {:?}", err);
+      return;
+    },
+  };
+  if !prefs.auto_download {
+    return;
+  }
+  let files = images.iter().map(|image| image.path.clone()).collect::<Vec<_>>();
+  if let Err(err) = copy_to_download_dir(&app.state::<AppDataRoot>(), &prefs, model.model_id(), &files) {
+    warn!("[publik] Automatic download failed: {:?}", err);
+  }
+}
+
+async fn fail(app: &AppHandle, task: &Task, model: PublikImageModel, message: &str) {
   let message = trim_to_char_boundary(message, MAX_FAILURE_MESSAGE_BYTES);
   let task_database = app.state::<TaskDatabase>();
   let result = update_task_status_with_rich_failure(UpdateTaskWithRichFailureArgs { db: task_database.get_connection(), task_id: &task.id, status: TaskStatus::CompleteFailure, maybe_failure_type: Some(TaskFailureType::GenerationFailed), maybe_failure_message: Some(message) }).await;
   if let Err(err) = result {
     error!("[publik] Could not record the failure of task {}: {:?}", task.id.as_str(), err);
   }
-  GenerationFailedEvent { action: GenerationAction::GenerateImage, service: GenerationServiceProvider::Publik, model: Some(GenerationModel::GptImage1), reason: Some(message.to_string()) }.send_infallible(app);
+  GenerationFailedEvent { action: GenerationAction::GenerateImage, service: GenerationServiceProvider::Publik, model: Some(model.generation_model()), reason: Some(message.to_string()) }.send_infallible(app);
 }
 
 /// The URL `convertFileSrc` makes for a local file: the webview loads it through Tauri's asset
@@ -296,6 +299,10 @@ pub fn local_asset_url(path: &Path) -> Option<Url> {
   let encoded = encode_uri_component(&path.to_string_lossy());
   let base = if cfg!(windows) { "http://asset.localhost/" } else { "asset://localhost/" };
   Url::parse(&format!("{base}{encoded}")).ok()
+}
+
+pub fn file_name(path: &Path) -> String {
+  path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 /// JavaScript's `encodeURIComponent`.
@@ -324,14 +331,15 @@ fn trim_to_char_boundary(value: &str, max_bytes: usize) -> &str {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use image::{ImageBuffer, Rgb};
 
   #[test]
   fn local_files_load_through_the_asset_protocol() {
-    let url = local_asset_url(Path::new("/Users/a b/Artcraft/downloads/publik/publik_1.png")).unwrap();
+    let url = local_asset_url(Path::new("/Users/a b/Artcraft/publik/results/publik_1.png")).unwrap();
     if cfg!(windows) {
       assert!(url.as_str().starts_with("http://asset.localhost/"));
     } else {
-      assert_eq!(url.as_str(), "asset://localhost/%2FUsers%2Fa%20b%2FArtcraft%2Fdownloads%2Fpublik%2Fpublik_1.png");
+      assert_eq!(url.as_str(), "asset://localhost/%2FUsers%2Fa%20b%2FArtcraft%2Fpublik%2Fresults%2Fpublik_1.png");
     }
   }
 
@@ -342,5 +350,17 @@ mod tests {
     assert!(trimmed.len() <= MAX_FAILURE_MESSAGE_BYTES);
     assert!(trimmed.chars().all(|c| c == '·'));
     assert_eq!(trim_to_char_boundary("short", MAX_FAILURE_MESSAGE_BYTES), "short");
+  }
+
+  #[test]
+  fn a_jpeg_result_is_kept_as_a_png() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("publik_task_1_1.png");
+    let image = image::DynamicImage::ImageRgb8(ImageBuffer::from_pixel(6, 4, Rgb([10, 200, 10])));
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut jpeg, ImageFormat::Jpeg).unwrap();
+    assert_eq!(save_as_png(&jpeg.into_inner(), &path).unwrap(), (6, 4));
+    assert_eq!(image::guess_format(&std::fs::read(&path).unwrap()).unwrap(), ImageFormat::Png);
+    assert!(save_as_png(b"not an image", &path).unwrap_err().starts_with("publik API sent back an image"));
   }
 }
