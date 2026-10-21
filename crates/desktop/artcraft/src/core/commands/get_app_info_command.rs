@@ -1,6 +1,5 @@
 use crate::core::commands::response::shorthand::InfallibleResponse;
 use crate::core::commands::response::success_response_wrapper::SerializeMarker;
-use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
 use crate::core::state::app_preferences::app_preferences_manager::AppPreferencesManager;
 use crate::core::state::artcraft_platform_info::{ArtcraftOs, ArtcraftPlatformInfo};
 use crate::core::state::data_dir::app_data_root::AppDataRoot;
@@ -25,8 +24,6 @@ pub struct AppInfoResponse {
   pub os_platform: DetectedOs,
   pub os_version: String,
 
-  pub storyteller_host: String,
-
   pub artcraft_root_directory: PathBuf,
   pub download_directory: PathBuf,
 }
@@ -46,14 +43,11 @@ pub enum DetectedOs {
 #[tauri::command]
 pub fn get_app_info_command(
   app_data_root: State<'_, AppDataRoot>,
-  app_env_configs: State<'_, AppEnvConfigs>,
   artcraft_platform_info: State<'_, ArtcraftPlatformInfo>,
   app_prefs: State<'_, AppPreferencesManager>,
 ) -> InfallibleResponse<AppInfoResponse> {
   info!("get_app_info_command called...");
   
-  let storyteller_host = app_env_configs.storyteller_host.to_api_hostname_and_scheme();
-
   let os_platform = match artcraft_platform_info.os_platform {
     ArtcraftOs::Linux => DetectedOs::Linux,
     ArtcraftOs::MacOS => DetectedOs::MacOS,
@@ -82,7 +76,6 @@ pub fn get_app_info_command(
     git_commit_timestamp: artcraft_platform_info.git_commit_timestamp,
     os_platform,
     os_version: artcraft_platform_info.os_version.clone(),
-    storyteller_host,
     artcraft_root_directory: root_directory,
     download_directory,
   }.into()

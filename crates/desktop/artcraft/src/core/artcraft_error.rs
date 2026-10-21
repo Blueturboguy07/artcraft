@@ -1,8 +1,6 @@
-use grok_consumer_client::error::grok_error::GrokError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
-use artcraft_client::error::storyteller_error::StorytellerError;
 
 #[derive(Debug)]
 pub enum ArtcraftError {
@@ -10,9 +8,6 @@ pub enum ArtcraftError {
   DecodeError(base64::DecodeError),
   IoError(std::io::Error),
   ReqwestError(reqwest::Error),
-  // Service errors
-  GrokError(GrokError),
-  StorytellerError(StorytellerError),
   // Lock errors
   RwLockReadError,
   RwLockWriteError,
@@ -31,8 +26,6 @@ impl Display for ArtcraftError {
       Self::DecodeError(e) => write!(f, "DecodeError: {:?}", e),
       Self::IoError(e) => write!(f, "IoError: {:?}", e),
       Self::ReqwestError(e) => write!(f, "ReqwestError: {:?}", e),
-      Self::GrokError(e) => write!(f, "GrokError: {:?}", e),
-      Self::StorytellerError(e) => write!(f, "StorytellerError: {:?}", e),
       Self::RwLockReadError => write!(f, "RwLockReadError"),
       Self::RwLockWriteError => write!(f, "RwLockWriteError"),
       Self::MutexLockError => write!(f, "MutexLockError"),
@@ -66,15 +59,4 @@ impl From<reqwest::Error> for ArtcraftError {
   }
 }
 
-impl From<GrokError> for ArtcraftError {
-  fn from(value: GrokError) -> Self {
-    Self::GrokError(value)
-  }
-}
-
-impl From<StorytellerError> for ArtcraftError {
-  fn from(value: StorytellerError) -> Self {
-    Self::StorytellerError(value)
-  }
-}
 

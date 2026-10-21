@@ -131,6 +131,13 @@ impl PublikLocalStore {
     self.dir.join(IMPORTS_DIR)
   }
 
+  /// The canonical path of a file inside this directory, or `None` for any other path.
+  pub fn contains_file(&self, path: &Path) -> Option<PathBuf> {
+    let dir = self.dir.canonicalize().ok()?;
+    let path = path.canonicalize().ok()?;
+    (path.starts_with(&dir) && path.is_file()).then_some(path)
+  }
+
   // ── Tokens ──
 
   pub fn result_token(task_id: &str, index: usize) -> String {

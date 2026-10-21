@@ -13,8 +13,8 @@ use crate::core::commands::response::success_response_wrapper::SerializeMarker;
 
 #[derive(Deserialize, Debug)]
 pub struct TauriGenerateImageRequest {
-  /// The provider to use (defaults to Artcraft/Storyteller).
-  /// Not all (provider, model) combinations are valid.
+  /// The provider. Only `publik` is served; `generate_image_command` answers any other provider
+  /// with one sentence before this request is parsed.
   pub provider: Option<GenerationProvider>,
 
   /// The model to use.
@@ -106,23 +106,10 @@ impl SerializeMarker for TauriGenerateImageResponse {}
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum TauriGenerateImageErrorType {
-  /// Caller didn't specify a model
-  ModelNotSpecified,
-  /// Bad input
+  /// Bad input, or a provider or model this build does not serve
   BadInput,
-  /// No provider available
-  NoProviderAvailable,
   /// Generic server error
   ServerError,
-  /// Needs to be logged into Artcraft
-  NeedsStorytellerCredentials,
-  /// Needs a FAL API key
-  NeedsFalApiKey,
-  /// Needs Grok credentials
-  NeedsGrokCredentials,
-  NeedsMidjourneyCredentials,
-  /// Billing issue
-  BillingIssue,
   /// publik API is the provider, but AI is not set up on this computer yet
   NeedsPublikSetup,
 }

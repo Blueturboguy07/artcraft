@@ -1,15 +1,11 @@
-use crate::core::commands::enqueue::image_to_gaussian::enqueue_image_to_gaussian_command::enqueue_image_to_gaussian_command;
-use crate::core::commands::generate::omni::{self, Modality, OmniRequest, OmniResult};
-use crate::core::commands::generate::omni::dispatch::{adapt_legacy_response, decode_native};
-use tauri::{AppHandle, Manager};
+use log::info;
 
+use crate::core::commands::unavailable::unavailable_response::{unavailable, UnavailableResponse};
+
+/// This build has no 3D world generation line on publik API. The command keeps its
+/// name and answers with one sentence. It reads no arguments and makes no network call.
 #[tauri::command]
-pub async fn generate_splat_command(mut request: OmniRequest, app: AppHandle) -> OmniResult {
-  if request.uses_artcraft() {
-    return omni::generate(request, Modality::Splat, &app).await;
-  }
-  if let Some(images) = request.fields.remove("reference_image_media_tokens") {
-    request.fields.insert("image_media_tokens".into(), images);
-  }
-  adapt_legacy_response(enqueue_image_to_gaussian_command(decode_native(request)?, app.clone(), app.state(), app.state(), app.state(), app.state(), app.state(), app.state()).await)
+pub fn generate_splat_command() -> UnavailableResponse {
+  info!("generate_splat_command called; 3d world generation is not in this build");
+  unavailable("3D world generation")
 }

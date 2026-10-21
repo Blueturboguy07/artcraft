@@ -1,11 +1,11 @@
-use crate::core::commands::generate::omni::{self, Modality, OmniRequest, OmniResult};
-use crate::core::commands::generate::omni::dispatch::local_error;
-use tauri::AppHandle;
+use log::info;
 
+use crate::core::commands::unavailable::unavailable_response::{unavailable, UnavailableResponse};
+
+/// This build has no 3D model generation line on publik API. The command keeps its
+/// name and answers with one sentence. It reads no arguments and makes no network call.
 #[tauri::command]
-pub async fn generate_mesh_command(request: OmniRequest, app: AppHandle) -> OmniResult {
-  if !request.uses_artcraft() {
-    return Err(local_error("No direct provider adapter is configured for this modality."));
-  }
-  omni::generate(request, Modality::Mesh, &app).await
+pub fn generate_mesh_command() -> UnavailableResponse {
+  info!("generate_mesh_command called; 3d model generation is not in this build");
+  unavailable("3D model generation")
 }

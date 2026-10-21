@@ -1,12 +1,9 @@
 use crate::core::commands::response::shorthand::ResponseOrErrorMessage;
 use crate::core::commands::response::success_response_wrapper::SerializeMarker;
 use crate::core::events::generation_events::generation_enqueue_success_event::GenerationEnqueueSuccessEvent;
-use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;
 use crate::core::state::data_dir::app_data_root::AppDataRoot;
 use crate::core::state::provider_priority::{Provider, ProviderPriorityStore};
 use crate::core::state::task_database::TaskDatabase;
-use crate::services::sora::state::sora_task_queue::SoraTaskQueue;
-use crate::services::storyteller::state::storyteller_credential_manager::StorytellerCredentialManager;
 use chrono::{DateTime, Utc};
 use enums::common::generation_provider::GenerationProvider;
 use enums::tauri::tasks::task_model_type::TaskModelType;
@@ -16,7 +13,6 @@ use errors::AnyhowResult;
 use log::{debug, error, info, warn};
 use serde_derive::{Deserialize, Serialize};
 use sqlite_tasks::queries::list_tasks_for_frontend::list_tasks_for_frontend;
-use artcraft_client::endpoints::media_files::delete_media_file::delete_media_file;
 use tauri::{AppHandle, State};
 use enums::tauri::tasks::task_failure_type::TaskFailureType;
 use enums::tauri::tasks::task_media_file_class::TaskMediaFileClass;
@@ -83,7 +79,6 @@ impl SerializeMarker for GetTaskQueueCommandResponse {}
 #[tauri::command]
 pub async fn get_task_queue_command(
   app: AppHandle,
-  app_env_configs: State<'_, AppEnvConfigs>,
   task_database: State<'_, TaskDatabase>,
 ) -> ResponseOrErrorMessage<GetTaskQueueCommandResponse> {
 
@@ -98,7 +93,7 @@ pub async fn get_task_queue_command(
     Ok(items) => items,
     Err(err) => {
       error!("get_task_queue_command failed: {:?}", err);
-      return Err("get_task_queue_command failed".into())
+      return Err("ArtCraft could not read the task list. Restart ArtCraft and try again.".into())
     }
   };
 

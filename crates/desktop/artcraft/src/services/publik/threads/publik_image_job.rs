@@ -301,6 +301,16 @@ pub fn local_asset_url(path: &Path) -> Option<Url> {
   Url::parse(&format!("{base}{encoded}")).ok()
 }
 
+/// The file behind a URL that `local_asset_url` made, or `None` for any other URL.
+pub fn local_asset_path(url: &Url) -> Option<PathBuf> {
+  let encoded = match (url.scheme(), url.host_str()) {
+    ("asset", Some("localhost")) | ("http" | "https", Some("asset.localhost")) => url.path().strip_prefix('/')?,
+    _ => return None,
+  };
+  let decoded = percent_decode(encoded)?;
+  (!decoded.is_empty()).then(|| PathBuf::from(decoded))
+}
+
 pub fn file_name(path: &Path) -> String {
   path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -315,6 +325,23 @@ fn encode_uri_component(value: &str) -> String {
     }
   }
   out
+}
+
+fn percent_decode(value: &str) -> Option<String> {
+  let bytes = value.as_bytes();
+  let mut out = Vec::with_capacity(bytes.len());
+  let mut index = 0;
+  while index < bytes.len() {
+    if bytes[index] == b'%' {
+      let hex = std::str::from_utf8(bytes.get(index + 1..index + 3)?).ok()?;
+      out.push(u8::from_str_radix(hex, 16).ok()?);
+      index += 3;
+    } else {
+      out.push(bytes[index]);
+      index += 1;
+    }
+  }
+  String::from_utf8(out).ok()
 }
 
 fn trim_to_char_boundary(value: &str, max_bytes: usize) -> &str {
@@ -341,6 +368,13 @@ mod tests {
     } else {
       assert_eq!(url.as_str(), "asset://localhost/%2FUsers%2Fa%20b%2FArtcraft%2Fpublik%2Fresults%2Fpublik_1.png");
     }
+  }
+
+  #[test]
+  fn asset_urls_turn_back_into_paths() {
+    let path = Path::new("/Users/a b/Artcraft/publik/results/publik_task_1_1.png");
+    assert_eq!(local_asset_path(&local_asset_url(path).unwrap()).as_deref(), Some(path));
+    assert_eq!(local_asset_path(&Url::parse("https://cdn.example.com/a.png").unwrap()), None);
   }
 
   #[test]
