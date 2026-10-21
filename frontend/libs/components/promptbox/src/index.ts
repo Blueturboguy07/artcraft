@@ -7,7 +7,6 @@ export * from "./lib/PromptBoxEdit";
 export * from "./lib/PromptBoxVideo";
 export * from "./lib/PromptBoxImage";
 export * from "./lib/publik/publikUploadImage";
-export * from "./lib/PromptBoxAudio";
 export * from "./lib/useAutoGrowEditorHeight";
 export * from "./lib/PromptFullscreenModal";
 export * from "./lib/PromptFullscreenButton";
