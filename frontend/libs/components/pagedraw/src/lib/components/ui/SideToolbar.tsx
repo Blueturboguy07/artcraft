@@ -409,7 +409,8 @@ const SideToolbar: React.FC<SideToolbarProps> = ({
         </div>
       )}
 
-      {tools.map((tool) => {
+      {/* The mask tool shows only for a model that takes a mask. */}
+      {tools.filter((tool) => tool.id !== "inpaint" || supportsMaskTool).map((tool) => {
 
         if (tool.type === "separator") {
           return <div key={tool.id} className="my-1 h-px w-8 bg-white/15" />;

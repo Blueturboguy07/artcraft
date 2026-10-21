@@ -3,7 +3,13 @@
   "include": [],
   "references": [
     {
+      "path": "../../icons"
+    },
+    {
       "path": "../slider-v2"
+    },
+    {
+      "path": "../viewer-3d"
     },
     {
       "path": "../../api"
@@ -13,12 +19,6 @@
     },
     {
       "path": "../../api-enums"
-    },
-    {
-      "path": "../pricing-modal"
-    },
-    {
-      "path": "../help-menu"
     },
     {
       "path": "../model-selector"
@@ -37,9 +37,6 @@
     },
     {
       "path": "../tooltip"
-    },
-    {
-      "path": "../../icons"
     },
     {
       "path": "../button"

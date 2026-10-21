@@ -9,15 +9,25 @@ import {
 import {
   GenerateImage,
   GenerateImageRequest,
-  EnqueueImageBgRemoval,
-  useCanvasBgRemovedEvent,
+  PublikImportImage,
+  commandErrorMessage,
 } from "@storyteller/tauri-api";
-import { CommonAspectRatio, CommonResolution } from "@storyteller/model-list";
+import { GenerationProvider } from "@storyteller/api-enums";
+import { CommonAspectRatio } from "@storyteller/model-list";
 import { useTextToImageGenerationCompleteEvent } from "@storyteller/tauri-events";
-import { UploadImageMedia } from "@storyteller/api";
+import { publikUploadImage } from "@storyteller/ui-promptbox";
+import { usePublikStore } from "@storyteller/provider-setup-modal";
+import { toast } from "@storyteller/ui-toaster";
 import { BaseImageSelector } from "./BaseImageSelector";
 
-// ─── Aspect ratio / resolution mappers ────────────────────────────────────────
+// publik's build: every edit goes to publik API (or the person's own key). The composite
+// canvas is stored on this computer first, and its local token is the one image the model
+// edits. publik API takes no painted mask and has no background tool.
+
+const EDIT_FALLBACK = "Could not start the edit. Check your prompt and try again.";
+const CANVAS_FALLBACK = "Could not read the canvas. Try again.";
+
+// ─── Aspect ratio mapper ──────────────────────────────────────────────────────
 const mapAspectRatio = (ratio?: string): CommonAspectRatio | undefined => {
   switch (ratio) {
     case "auto":   return CommonAspectRatio.Auto;
@@ -28,12 +38,12 @@ const mapAspectRatio = (ratio?: string): CommonAspectRatio | undefined => {
   }
 };
 
-const mapResolution = (res?: string): CommonResolution | undefined => {
-  switch (res) {
-    case "1k": return CommonResolution.OneK;
-    case "2k": return CommonResolution.TwoK;
-    case "4k": return CommonResolution.FourK;
-    default:   return undefined;
+/** One plain sentence for the person; the setup card opens when publik API is not set up. */
+const showCommandError = (err: unknown, fallback: string) => {
+  toast.error(commandErrorMessage(err, fallback));
+  const errorType = (err as { error_type?: string } | undefined)?.error_type;
+  if (errorType === "needs_publik_setup") {
+    usePublikStore.getState().openSetup("pick");
   }
 };
 
@@ -41,24 +51,9 @@ const mapResolution = (res?: string): CommonResolution | undefined => {
 // These hooks wire Tauri backend events into the shared Zustand store.
 // They live here so the lib itself has no Tauri imports.
 const useTauriEventBridges = () => {
-  // When a bg-removal job completes, update the node in the canvas store.
-  useCanvasBgRemovedEvent(async (event) => {
-    const nodeId = event.maybe_frontend_subscriber_id;
-    if (!nodeId) {
-      console.error("No node ID received from background removal event");
-      return;
-    }
-    useSceneStore
-      .getState()
-      .finishRemoveBackground(nodeId, event.media_token, event.image_cdn_url);
-  });
-
   // The unified `generate_image` Tauri command emits
-  // `text_to_image_generation_complete_event` regardless of whether the
-  // request was a plain text-to-image, an edit, or an inpaint. We filter on
-  // `frontend_subscriber_id` so PageDraw only resolves placeholders it
-  // enqueued itself — other pages (Angles, etc.) ignore subscriber IDs they
-  // don't own. Same pattern as PageAngles/AnglesStore.
+  // `text_to_image_generation_complete_event` for every image request. We filter on
+  // `frontend_subscriber_id` so PageDraw only resolves placeholders it enqueued itself.
   useTextToImageGenerationCompleteEvent(async (event) => {
     const store = useSceneStore.getState();
     if (store.pendingGenerations.length === 0) return;
@@ -95,50 +90,50 @@ const useTauriAdapter = (): PageDrawAdapter => {
   return useMemo<PageDrawAdapter>(
     () => ({
       enqueueEditImage: async (req) => {
+        const references = req.imageMediaTokens?.filter((t) => t.length > 0);
         const request: GenerateImageRequest = {
+          provider: GenerationProvider.Publik,
           model: req.model,
           canvas_image_media_token: req.canvasImageMediaToken,
-          image_media_tokens: req.imageMediaTokens,
+          image_media_tokens: references?.length ? references : undefined,
           prompt: req.prompt,
-          enable_system_prompt:
-            typeof req.disableSystemPrompt === "boolean"
-              ? !req.disableSystemPrompt
-              : undefined,
           batch_size: req.imageCount,
-          aspect_ratio: mapAspectRatio(req.aspectRatio),
-          resolution: mapResolution(req.imageResolution),
+          // Nano Banana makes square images only.
+          aspect_ratio:
+            req.model?.canChangeAspectRatio === false
+              ? CommonAspectRatio.Square
+              : mapAspectRatio(req.aspectRatio),
           frontend_caller: req.frontendCaller,
           frontend_subscriber_id: req.frontendSubscriberId,
         };
-        if (req.provider) request.provider = req.provider;
-        return GenerateImage(request);
+        try {
+          return await GenerateImage(request);
+        } catch (err) {
+          showCommandError(err, EDIT_FALLBACK);
+          return { status: "error" };
+        }
       },
 
-      enqueueInpaint: async (req) => {
-        const request: GenerateImageRequest = {
-          model: req.model,
-          image_media_tokens: req.imageMediaToken ? [req.imageMediaToken] : undefined,
-          inpainting_mask_image_raw_bytes: req.maskImageRawBytes,
-          prompt: req.prompt,
-          batch_size: req.imageCount,
-          frontend_caller: req.frontendCaller,
-          frontend_subscriber_id: req.frontendSubscriberId,
-        };
-        if (req.provider) request.provider = req.provider;
-        return GenerateImage(request);
+      // publik API takes no painted mask. The models on this page edit the whole canvas,
+      // so the page does not call this.
+      enqueueInpaint: async () => {
+        toast.error(
+          "publik API does not take a painted mask. Describe the change in the prompt.",
+        );
+        return { status: "error" };
       },
 
-      enqueueBgRemoval: async (base64Image, nodeId) => {
-        await EnqueueImageBgRemoval({
-          base64_image: base64Image,
-          frontend_caller: "image_editor",
-          frontend_subscriber_id: nodeId,
-        });
+      importImage: async (file) => {
+        try {
+          const imported = await PublikImportImage(file, file.name || "canvas.png");
+          return { token: imported.token, url: imported.url };
+        } catch (err) {
+          showCommandError(err, CANVAS_FALLBACK);
+          return null;
+        }
       },
 
-      uploadImage: UploadImageMedia,
-
-      onEnqueueMeta: (meta) => (window as any).__storeTaskEnqueueMeta?.(meta),
+      uploadImage: publikUploadImage,
 
       renderBaseImageSelector: ({ onImageSelect, showLoading }) => (
         <BaseImageSelector

@@ -1,9 +1,7 @@
 import { useState } from "react";
-import toast from "react-hot-toast";
-import { UploaderStates } from "@storyteller/common";
-import { UploadImageMedia } from "@storyteller/api";
+import { toast } from "@storyteller/ui-toaster";
+import { PublikImportImage, commandErrorMessage } from "@storyteller/tauri-api";
 import { GalleryModal, GalleryItem } from "@storyteller/ui-gallery-modal";
-import { useLoginModalStore } from "@storyteller/ui-login-modal";
 import { usePromptImageStore, RefImage } from "@storyteller/ui-promptbox";
 import type {
   MoodboardAdapter,
@@ -13,23 +11,23 @@ import type {
 import { useTabStore } from "../Stores/TabState";
 
 // Desktop (Tauri) implementation of the moodboard's platform seams.
+//
+// publik's build: images stay on this computer. publik_import_image_command stores an added
+// image and gives back a local token; publik API takes one reference image per prompt.
+
+/** publik API's image models take one reference image. */
+const MAX_PROMPT_REFERENCES = 1;
 
 const uploadImage = async (file: File): Promise<string | null> => {
-  let token: string | null = null;
   try {
-    await UploadImageMedia({
-      title: file.name || "Moodboard image",
-      assetFile: file,
-      progressCallback: (state) => {
-        if (state.status === UploaderStates.success && state.data) {
-          token = String(state.data);
-        }
-      },
-    });
+    const imported = await PublikImportImage(file, file.name || "moodboard.png");
+    return imported.token;
   } catch (err) {
-    console.error("[Moodboard] upload failed", err);
+    toast.error(
+      commandErrorMessage(err, "Could not add the image. Use a PNG, JPEG or WebP file."),
+    );
+    return null;
   }
-  return token;
 };
 
 const sendToGeneration = (refs: MoodboardReference[]): void => {
@@ -40,10 +38,14 @@ const sendToGeneration = (refs: MoodboardReference[]): void => {
     mediaToken: r.mediaToken,
   }));
   const store = usePromptImageStore.getState();
-  store.setReferenceImages(dedupeByToken([...store.referenceImages, ...newRefs]));
+  store.setReferenceImages(
+    dedupeByToken(newRefs).slice(0, MAX_PROMPT_REFERENCES),
+  );
   void useTabStore.getState().setActiveTab("IMAGE");
   toast.success(
-    `${refs.length} reference${refs.length > 1 ? "s" : ""} added to the prompt`,
+    refs.length > MAX_PROMPT_REFERENCES
+      ? "The prompt takes one reference image. We added the first one."
+      : "Reference image added to the prompt.",
   );
 };
 
@@ -61,10 +63,6 @@ const DesktopLibraryPicker = ({
     <GalleryModal
       isOpen={open}
       onClose={close}
-      onLoginClick={() => {
-        close();
-        useLoginModalStore.getState().openModal();
-      }}
       mode="select"
       selectedItemIds={selectedIds}
       onSelectItem={(id: string) =>

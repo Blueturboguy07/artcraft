@@ -53,6 +53,9 @@ export interface PromptBox2DProps {
   /** Optional model-picker slot rendered at the start of the toolbar
    *  (left of the aspect-ratio picker). */
   modelSelector?: React.ReactNode;
+  /** Show the reference-image row. Defaults to true. A host whose canvas is
+   *  already the one image the model takes passes false. */
+  allowReferenceImages?: boolean;
 }
 
 export const PromptBox2D = ({
@@ -69,6 +72,7 @@ export const PromptBox2D = ({
   onFitPressed,
   usePrompt2DStore,
   modelSelector,
+  allowReferenceImages = true,
 }: PromptBox2DProps) => {
   useSignals();
 
@@ -142,11 +146,14 @@ export const PromptBox2D = ({
   ]);
 
   useEffect(() => {
-    if (selectedImageModel?.isValidGenerationCount(generationCount)) {
+    // Each image is one charge, so wait for the model and default to its count (1).
+    if (
+      !selectedImageModel ||
+      selectedImageModel.isValidGenerationCount(generationCount)
+    ) {
       return;
     }
-    const defaultGenerations = selectedImageModel?.defaultGenerationCount || 4;
-    onGenerationCountChange?.(defaultGenerations);
+    onGenerationCountChange?.(selectedImageModel.defaultGenerationCount || 1);
   }, [selectedImageModel, generationCount]);
 
   useEffect(() => {
@@ -159,9 +166,11 @@ export const PromptBox2D = ({
   }, [resolution]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const canUseImagePrompt =
+    allowReferenceImages && !!selectedImageModel?.canUseImagePrompt;
   const isImageRowVisible =
     showImagePrompts ||
-    (selectedImageModel?.canUseImagePrompt && referenceImages.length > 0) ||
+    (canUseImagePrompt && referenceImages.length > 0) ||
     false;
 
   useEffect(() => {
@@ -296,7 +305,7 @@ export const PromptBox2D = ({
         onGenerateClick(prompt, {
           aspectRatio,
           resolution,
-          images: referenceImages,
+          images: allowReferenceImages ? referenceImages : [],
           selectedProvider: selectedProvider,
         }),
       );
@@ -363,7 +372,7 @@ export const PromptBox2D = ({
         {content}
       </Modal>
       <div className="absolute bottom-4 left-1/2 flex w-[90vw] max-w-5xl -translate-x-1/2 flex-col gap-3">
-        {selectedImageModel?.canUseImagePrompt && isImageRowVisible && (
+        {canUseImagePrompt && isImageRowVisible && (
           <ImagePromptRow
             visible={true}
             maxImagePromptCount={Math.max(
@@ -389,13 +398,13 @@ export const PromptBox2D = ({
         <div
           className={twMerge(
             "glass relative w-full p-4",
-            selectedImageModel?.canUseImagePrompt &&
+            canUseImagePrompt &&
               isImageRowVisible &&
               "rounded-t-none",
           )}
         >
           <div className="flex gap-3">
-            {selectedImageModel?.canUseImagePrompt && (
+            {canUseImagePrompt && (
               <Tooltip
                 content="Add Image"
                 position="top"
@@ -569,7 +578,7 @@ export const PromptBox2D = ({
           />
         }
         imagePromptRow={
-          selectedImageModel?.canUseImagePrompt ? (
+          canUseImagePrompt ? (
             <ImagePromptRow
               visible={true}
               maxImagePromptCount={Math.max(

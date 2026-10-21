@@ -1,18 +1,13 @@
 import { ImagesIcon, MaximizeIcon, PencilIcon } from "lucide-react";
-import { downloadFileFromUrl } from "@storyteller/tauri-api";
+import { PublikImportImage, commandErrorMessage } from "@storyteller/tauri-api";
 import { GalleryModal, GalleryItem } from "@storyteller/ui-gallery-modal";
 import { useState } from "react";
-import toast from "react-hot-toast";
-import { uploadImage } from "~/components/reusable/UploadModalMedia/uploadImage";
-import { UploaderStates } from "~/enums";
-import { MediaFilesApi } from "@storyteller/api";
-import { HelpMenuButton } from "@storyteller/ui-help-menu";
-import { CostCalculatorButton } from "@storyteller/ui-pricing-modal";
-import { ModelPage } from "@storyteller/ui-model-selector";
+import { toast } from "@storyteller/ui-toaster";
 import { UploadEntryCard } from "~/components/media/UploadEntryCard";
 import { BlankCanvasModal, type BaseSelectorImage } from "@storyteller/ui-pagedraw";
 
 const MAX_GALLERY_SELECTIONS = 1;
+const IMPORT_FALLBACK = "Could not add the image. Use a PNG, JPEG or WebP file.";
 
 type BaseImageSelectorProps = {
   onImageSelect: (image: BaseSelectorImage) => void;
@@ -48,7 +43,7 @@ export const BaseImageSelector = ({
   const handleUseGalleryImages = (selectedItems: GalleryItem[]) => {
     const item = selectedItems[0];
     if (!item || !item.fullImage) {
-      toast.error("No image selected");
+      toast.error("Select an image first.");
       return;
     }
     const referenceImage: BaseSelectorImage = {
@@ -72,60 +67,24 @@ export const BaseImageSelector = ({
     onImageSelect(blankImage);
   };
 
-  const handleFileUpload = (files: FileList) => {
+  // The image stays on this computer: publik_import_image_command stores it and gives back
+  // a local token and an asset:// URL. The editor takes one base image.
+  const handleFileUpload = async (files: FileList) => {
+    const file = files[0];
+    if (!file) return;
     setIsLoading(true);
-
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        uploadImage({
-          title: `reference-image-${Math.random().toString(36).substring(2, 15)}`,
-          assetFile: file,
-          progressCallback: (newState) => {
-            if (newState.status === UploaderStates.success && newState.data) {
-              const mediaToken = newState.data || "";
-              (async () => {
-                let finalUrl = reader.result as string;
-                let thumbnailUrlTemplate = undefined;
-                try {
-                  const api = new MediaFilesApi();
-                  const result = await api.GetMediaFileByToken({ mediaFileToken: mediaToken });
-                  if (result.success && result.data) {
-                    finalUrl =
-                      result.data.media_links?.cdn_url ||
-                      result.data.public_bucket_url ||
-                      finalUrl;
-                    const mediaLinks = result.data.media_links as
-                      | { thumbnail_template?: string; maybe_thumbnail_template?: string }
-                      | undefined;
-                    thumbnailUrlTemplate =
-                      mediaLinks?.thumbnail_template || mediaLinks?.maybe_thumbnail_template;
-                  }
-                } catch (e) {
-                  console.warn("Falling back to data URL for uploaded image", e);
-                }
-                const referenceImage: BaseSelectorImage = {
-                  mediaToken,
-                  url: finalUrl,
-                  fullImageUrl: finalUrl,
-                  thumbnailUrlTemplate,
-                };
-                toast.success("Image uploaded successfully!");
-                onImageSelect(referenceImage);
-                setIsLoading(false);
-              })();
-            } else if (
-              newState.status === UploaderStates.assetError ||
-              newState.status === UploaderStates.imageCreateError
-            ) {
-              toast.error("Upload failed. Please try again.");
-              setIsLoading(false);
-            }
-          },
-        });
-      };
-      reader.readAsDataURL(file);
-    });
+    try {
+      const imported = await PublikImportImage(file, file.name);
+      onImageSelect({
+        mediaToken: imported.token,
+        url: imported.url,
+        fullImageUrl: imported.url,
+      });
+    } catch (err) {
+      toast.error(commandErrorMessage(err, IMPORT_FALLBACK));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -135,11 +94,10 @@ export const BaseImageSelector = ({
           <UploadEntryCard
             icon={PencilIcon}
             title="Edit Image"
-            description="Click to upload or drag and drop an image here to edit"
+            description="Click to add an image, or drag an image here."
             accentBackgroundClass="bg-blue-500/40"
             accentBorderClass="border-blue-400/30"
-            accept="image/*"
-            multiple
+            accept="image/png,image/jpeg,image/webp"
             onFilesSelected={handleFileUpload}
             primaryLabel="Select Image"
             secondaryLabel="Pick from Library"
@@ -152,10 +110,6 @@ export const BaseImageSelector = ({
           />
         </div>
       </div>
-      <div className="fixed bottom-6 right-6 z-20 flex items-center gap-2">
-        <CostCalculatorButton modelPage={ModelPage.ImageEditor} />
-        <HelpMenuButton />
-      </div>
       <GalleryModal
         isOpen={!!isGalleryModalOpen}
         onClose={handleGalleryClose}
@@ -164,7 +118,6 @@ export const BaseImageSelector = ({
         onSelectItem={handleImageSelect}
         maxSelections={MAX_GALLERY_SELECTIONS}
         onUseSelected={handleUseGalleryImages}
-        onDownloadClicked={downloadFileFromUrl}
         forceFilter="image"
       />
       <BlankCanvasModal

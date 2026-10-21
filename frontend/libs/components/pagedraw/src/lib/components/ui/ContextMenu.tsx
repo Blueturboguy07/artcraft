@@ -144,13 +144,6 @@ export const ContextMenuContainer: React.FC<ContextMenuContainerProps> = ({
 const defaultMenuItems: MenuItem[] = [
   {
     icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <path d="M4 4v16h16M4 20l16-16" strokeWidth="2" strokeLinecap="round"/>
-    </svg>,
-    label: 'Remove background',
-    action: 'REMOVE_BACKGROUND'
-  },
-  {
-    icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <path d="M12 10V14M8 6H16C17.1046 6 18 6.89543 18 8V16C18 17.1046 17.1046 18 16 18H8C6.89543 18 6 17.1046 6 16V8C6 6.89543 6.89543 6 8 6Z" strokeWidth="2" strokeLinecap="round"/>
     </svg>,
     label: 'Lock',

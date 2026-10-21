@@ -55,6 +55,9 @@ const PromptEditor: React.FC<PromptBox2DProps> = ({
           onAspectRatioChange={onAspectRatioChange}
           onFitPressed={onFitPressed}
           modelSelector={modelSelector}
+          // The canvas is the one image publik API edits, so the page takes no
+          // other reference image.
+          allowReferenceImages={false}
         />
       </JobProvider>
 

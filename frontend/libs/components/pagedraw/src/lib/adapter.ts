@@ -38,8 +38,18 @@ export interface PageDrawAdapter {
   /** Platform-specific inpaint enqueue (Tauri invoke or REST POST). */
   enqueueInpaint(req: PageDrawInpaintRequest): Promise<{ status: string }>;
 
-  /** Platform-specific background removal enqueue. */
-  enqueueBgRemoval(base64Image: string, nodeId: string): Promise<void>;
+  /**
+   * Platform-specific background removal enqueue. Optional: a host without a
+   * background tool leaves it out, and the page hides the action.
+   */
+  enqueueBgRemoval?(base64Image: string, nodeId: string): Promise<void>;
+
+  /**
+   * Stores the composite canvas (base image + drawing) so a generate request can
+   * use it as the image to edit. Returns `null` when the import failed; the host
+   * tells the person why.
+   */
+  importImage(file: File): Promise<{ token: string; url?: string } | null>;
 
   /** Platform's image upload function, compatible with PromptBox2D's uploadImage prop. */
   uploadImage?: UploadMediaFn;

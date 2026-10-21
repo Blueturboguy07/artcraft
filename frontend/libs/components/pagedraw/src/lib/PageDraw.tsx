@@ -29,15 +29,12 @@ import {
   useSelectedImageModel,
   useSelectedProviderForModel,
 } from "@storyteller/ui-model-selector";
-import { HelpMenuButton } from "@storyteller/ui-help-menu";
-import { CostCalculatorButton } from "@storyteller/ui-pricing-modal";
 import { GenerationProvider } from "@storyteller/api-enums";
 import { HistoryStack } from "./HistoryStack";
 import { type BaseSelectorImage } from "./types";
 import { EncodeImageBitmapToBase64 } from "./utilities/EncodeImageBitmapToBase64";
 import { compositeInWorker, maskInWorker } from "./utilities/generatePipeline";
 import { RefImage, usePrompt2DStore } from "@storyteller/ui-promptbox";
-import { PromptsApi } from "@storyteller/api";
 import toast from "react-hot-toast";
 import {
   render3DModelToDataUrl,
@@ -278,8 +275,8 @@ interface PageDrawProps {
    */
   fillParentHeight?: boolean;
   /**
-   * Show the bottom-right cost-calculator + help cluster. Defaults to true;
-   * hosts that surface those elsewhere (e.g. the webapp) pass false.
+   * @deprecated Ignored. publik's build has no cost calculator and no help
+   * cluster on this page.
    */
   showBottomRightControls?: boolean;
 }
@@ -288,7 +285,6 @@ const PageDraw = ({
   adapter,
   backgroundClassName = "bg-ui-background",
   fillParentHeight = false,
-  showBottomRightControls = true,
 }: PageDrawProps) => {
   const canvas2dModelList = useCanvas2dPageModelList();
   const canvasWidth = useRef<number>(1024);
@@ -884,42 +880,9 @@ const PageDraw = ({
             frontendSubscriberId: subscriberId,
             provider: options?.selectedProvider,
           });
-        } else if (selectedImageModel?.isNanoBananaModel()) {
-          // CASE 2 - NANO BANANA
-          const compositeFile = await getCompositeFile();
-
-          if (!compositeFile) {
-            console.error("Failed to create composite canvas");
-            return;
-          }
-
-          const api = new PromptsApi();
-          const snapshotResult = await api.uploadSceneSnapshot({
-            screenshot: compositeFile,
-          });
-
-          if (!snapshotResult.success || !snapshotResult.data) {
-            console.error("Failed to upload scene snapshot");
-            return;
-          }
-
-          const imgs = options?.images || [];
-          result = await adapter.enqueueEditImage({
-            model: selectedImageModel,
-            canvasImageMediaToken: snapshotResult.data,
-            imageMediaTokens: imgs
-              .map((img) => img.mediaToken)
-              .filter((t) => t.length > 0),
-            prompt: prompt,
-            imageCount: generationCount,
-            frontendCaller: "image_editor",
-            frontendSubscriberId: subscriberId,
-            aspectRatio: options?.aspectRatio,
-            imageResolution: options?.resolution,
-            provider: options?.selectedProvider,
-          });
         } else {
-          // CASE 3 - DEFAULT
+          // CASE 2 - EDIT: the composite canvas (base image + drawing) is the
+          // one image the model edits.
           const compositeFile = await getCompositeFile();
 
           if (!compositeFile) {
@@ -927,20 +890,15 @@ const PageDraw = ({
             return;
           }
 
-          const api = new PromptsApi();
-          const snapshotResult = await api.uploadSceneSnapshot({
-            screenshot: compositeFile,
-          });
-
-          if (!snapshotResult.success || !snapshotResult.data) {
-            console.error("Failed to upload scene snapshot");
+          const canvasImage = await adapter.importImage(compositeFile);
+          if (!canvasImage) {
             return;
           }
 
           const imgs = options?.images || [];
           result = await adapter.enqueueEditImage({
             model: selectedImageModel,
-            canvasImageMediaToken: snapshotResult.data,
+            canvasImageMediaToken: canvasImage.token,
             imageMediaTokens: imgs
               .map((img) => img.mediaToken)
               .filter((t) => t.length > 0),
@@ -1125,6 +1083,8 @@ const PageDraw = ({
           toggleLock(selectedNodeIds);
           break;
         case "REMOVE_BACKGROUND": {
+          // Hosts without a background tool leave `enqueueBgRemoval` out.
+          if (!adapter.enqueueBgRemoval) break;
           const result = await beginRemoveBackground(selectedNodeIds);
           if (result) {
             await adapter.enqueueBgRemoval(result.base64, result.nodeId);
@@ -1350,12 +1310,6 @@ const PageDraw = ({
           />
         </ContextMenuContainer>
       </div>
-      {showBottomRightControls && (
-        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
-          <CostCalculatorButton modelPage={PAGE_ID} />
-          <HelpMenuButton />
-        </div>
-      )}
       {!editing3DNodeId && selectedNodeWithModel?.modelUrl && (
         <Edit3DButton
           nodeId={selectedNodeIds[0]}
