@@ -111,3 +111,99 @@ export const PublikImprovePrompt = (prompt: string) =>
   run<PublikImprovePromptResult>("publik_improve_prompt_command", {
     request: { prompt },
   });
+
+// ── Local media: imports, results, speech and transcription ────────────────────
+//
+// Every image, speech clip and transcript lives on this computer. Rust stores the file, gives it
+// a local token (`publik_…`) and an `asset://` URL, and lists the results newest first. Nothing
+// goes to an ArtCraft account.
+
+/** The model of a stored result. */
+export type PublikResultModel = "gpt_image_1" | "nano_banana" | "speech";
+
+export interface PublikMedia {
+  token: string;
+  url: string;
+}
+
+export interface PublikImportedImage extends PublikMedia {
+  width: number;
+  height: number;
+}
+
+export interface PublikResult {
+  task_id: string;
+  created_at: string;
+  model: PublikResultModel;
+  prompt: string;
+  images: PublikMedia[];
+  audio: PublikMedia | null;
+}
+
+export interface PublikSpeechResult extends PublikMedia {
+  charge_line: string;
+}
+
+export interface PublikTranscribeResult {
+  text: string;
+  charge_line: string;
+}
+
+/** The voices publik API speaks with. */
+export const PUBLIK_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
+export type PublikVoice = (typeof PUBLIK_VOICES)[number];
+
+/**
+ * How the image bytes travel to `publik_import_image_command`. Change this one line if Rust
+ * takes a byte array: "base64" sends `data_base64`, "bytes" sends `bytes` (number[]).
+ */
+export const PUBLIK_IMPORT_ENCODING: "base64" | "bytes" = "base64";
+
+/** The `request` body for `publik_import_image_command`. */
+export const publikImportImageRequest = (
+  bytes: Uint8Array,
+  fileName: string,
+): Record<string, unknown> =>
+  PUBLIK_IMPORT_ENCODING === "base64"
+    ? { data_base64: bytesToBase64(bytes), file_name: fileName }
+    : { bytes: Array.from(bytes), file_name: fileName };
+
+/** Copy an image into the local library. Returns its token and `asset://` URL. */
+export const PublikImportImage = async (
+  file: Blob,
+  fileName?: string,
+): Promise<PublikImportedImage> => {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const name = fileName || (file instanceof File && file.name) || "image.png";
+  return run<PublikImportedImage>("publik_import_image_command", {
+    request: publikImportImageRequest(bytes, name),
+  });
+};
+
+/** The stored results, newest first. They survive restarts. */
+export const PublikListResults = (limit?: number) =>
+  run<PublikResult[]>("publik_list_results_command", {
+    request: limit === undefined ? {} : { limit },
+  });
+
+/** Text to speech through publik API (or the own key). */
+export const PublikSpeech = (text: string, voice: PublikVoice) =>
+  run<PublikSpeechResult>("publik_speech_command", {
+    request: { text, voice },
+  });
+
+/** Transcribe the audio file at `path`. */
+export const PublikTranscribe = (path: string, language?: string) =>
+  run<PublikTranscribeResult>("publik_transcribe_command", {
+    request: language ? { path, language } : { path },
+  });
+
+/** Base64 without the `data:` prefix. Works for large images (chunked). */
+export const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+};
