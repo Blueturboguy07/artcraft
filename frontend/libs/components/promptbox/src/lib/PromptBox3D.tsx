@@ -27,7 +27,6 @@ import {
   GenerateImageRequest,
 } from "@storyteller/tauri-api";
 import { usePrompt3DStore, useEnterToGenerateStore } from "./promptStore";
-import { gtagEvent } from "@storyteller/google-analytics";
 import {
   CommonAspectRatio,
   CommonResolution,
@@ -347,7 +346,6 @@ export const PromptBox3D = ({
       );
       return;
     }
-    gtagEvent("enqueue_3d");
     const isDesktop = IsDesktopApp();
     console.log("Is Desktop?", isDesktop);
     if (isDesktop) {

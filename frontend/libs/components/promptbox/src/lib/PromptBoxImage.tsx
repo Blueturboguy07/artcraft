@@ -20,7 +20,6 @@ import { useAutoGrowEditorHeight } from "./useAutoGrowEditorHeight";
 import { PromptFullscreenModal, useFullscreenPrompt } from "./PromptFullscreenModal";
 import { PromptFullscreenButton } from "./PromptFullscreenButton";
 import { PromptClearAllButton } from "./PromptClearAllButton";
-import { gtagEvent } from "@storyteller/google-analytics";
 import { twMerge } from "tailwind-merge";
 import { GenerationProvider } from "@storyteller/api-enums";
 import { AspectRatioPicker } from "./common/AspectRatioPicker";
@@ -61,6 +60,7 @@ interface PromptBoxImageProps {
   imageMediaId?: string;
   url?: string;
   onImageRowVisibilityChange?: (visible: boolean) => void;
+  /** @deprecated Ignored. publik's build shows no credit cost. */
   credits?: number | null;
   /** Optional model-picker slot rendered at the start of the toolbar
    *  (left of the aspect-ratio picker). */
@@ -75,7 +75,6 @@ export const PromptBoxImage = ({
   selectedProvider,
   imageMediaId,
   url,
-  credits,
   modelSelector,
 }: PromptBoxImageProps) => {
   useSignals();
@@ -83,9 +82,8 @@ export const PromptBoxImage = ({
     () => imageModelForProvider(catalogModel, selectedProvider),
     [catalogModel, selectedProvider],
   );
-  const isDirectMidjourney = selectedProvider === GenerationProvider.Midjourney;
-  // publik API bills its own balance (or the own key's service), never ArtCraft credits.
-  const isPublik = selectedProvider === GenerationProvider.Publik;
+  // publik API (or the person's own key) is the only provider. It bills its own balance.
+  const isPublik = (selectedProvider ?? GenerationProvider.Publik) === GenerationProvider.Publik;
   const publikNotice = usePublikStore((s) => s.status?.maybe_notice);
   const openPublikSetup = usePublikStore((s) => s.openSetup);
 
@@ -115,7 +113,7 @@ export const PromptBoxImage = ({
   const resolution = usePromptImageStore((s) => s.resolution);
   const setResolution = usePromptImageStore((s) => s.setResolution);
   const storedGenerationCount = usePromptImageStore((s) => s.generationCount);
-  const generationCount = isDirectMidjourney ? 4 : storedGenerationCount;
+  const generationCount = storedGenerationCount;
   const setGenerationCount = usePromptImageStore((s) => s.setGenerationCount);
   const [isEnqueueing, setIsEnqueueing] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -293,11 +291,11 @@ export const PromptBoxImage = ({
   }, [imageMediaId, url]);
 
   useEffect(() => {
-    if (selectedModel?.isValidGenerationCount(generationCount)) {
+    // Each image is one charge, so wait for the model and default to its count (1).
+    if (!selectedModel || selectedModel.isValidGenerationCount(generationCount)) {
       return;
     }
-    const defaultGenerations = selectedModel?.defaultGenerationCount || 4;
-    setGenerationCount(defaultGenerations);
+    setGenerationCount(selectedModel.defaultGenerationCount || 1);
   }, [selectedModel, generationCount]);
 
   useEffect(() => {
@@ -381,8 +379,6 @@ export const PromptBoxImage = ({
 
     setIsEnqueueing(true);
 
-    gtagEvent("enqueue_image");
-
     const subscriberId = crypto.randomUUID
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
@@ -401,9 +397,8 @@ export const PromptBoxImage = ({
         frontend_subscriber_id: subscriberId,
       };
 
-      if (!!selectedProvider) {
-        request.provider = selectedProvider;
-      }
+      // Every image goes through publik API (or the person's own key).
+      request.provider = GenerationProvider.Publik;
 
       if (selectedModel?.supportsNewAspectRatio()) {
         request.aspect_ratio = commonAspectRatio;
@@ -443,7 +438,7 @@ export const PromptBoxImage = ({
       await onEnqueuePressed?.(prompt, generationCount, subscriberId);
     } catch (err) {
       console.error("PromptBoxImage - enqueue failed", err);
-      toast.error(commandErrorMessage(err, "Failed to start image generation. Please try again."));
+      toast.error(commandErrorMessage(err, "Could not start the image. Check your prompt and try again."));
       if ((err as { error_type?: string } | undefined)?.error_type === "needs_publik_setup") {
         openPublikSetup("pick");
       }
@@ -594,7 +589,6 @@ export const PromptBoxImage = ({
                 onClick={handleEnqueue}
                 disabled={!prompt.trim()}
                 loading={isEnqueueing}
-                credits={isDirectMidjourney || isPublik ? 0 : credits}
               />
             </div>
           </div>

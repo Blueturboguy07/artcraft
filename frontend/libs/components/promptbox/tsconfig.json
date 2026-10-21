@@ -6,13 +6,7 @@
       "path": "../slider-v2"
     },
     {
-      "path": "../../omni-gen"
-    },
-    {
-      "path": "../../analytics/google-analytics"
-    },
-    {
-      "path": "../../tauri-api"
+      "path": "../provider-setup-modal"
     },
     {
       "path": "../camera-settings-modal"
@@ -36,6 +30,9 @@
       "path": "../../common"
     },
     {
+      "path": "../../icons"
+    },
+    {
       "path": "../tooltip"
     },
     {
@@ -57,10 +54,10 @@
       "path": "../toaster"
     },
     {
-      "path": "../../api"
+      "path": "../../tauri-api"
     },
     {
-      "path": "../../icons"
+      "path": "../../api"
     },
     {
       "path": "../modal"

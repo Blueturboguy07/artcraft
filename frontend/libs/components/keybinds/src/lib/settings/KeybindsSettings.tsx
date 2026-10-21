@@ -46,8 +46,11 @@ interface PendingConflict {
 // styled with the app's tailwind tokens.
 export function KeybindsSettings({
   onOpenVideoEditorShortcuts,
+  hiddenSurfaces,
 }: {
   onOpenVideoEditorShortcuts?: () => void;
+  /** Surfaces the host does not show (for example, a host without the 3D editor). */
+  hiddenSurfaces?: Surface[];
 }) {
   const selectedPreset = useKeybindsStore((s) => s.selectedPreset);
   const overrides = useKeybindsStore((s) => s.overrides);
@@ -82,12 +85,14 @@ export function KeybindsSettings({
     onCancel: () => setListening(false),
   });
 
+  const hiddenKey = (hiddenSurfaces ?? []).join(",");
   const surfaces = useMemo(
     () =>
       (Object.keys(SURFACE_TITLES) as Surface[]).filter(
-        (s) => ACTIONS_BY_SURFACE[s].length > 0,
+        (s) =>
+          ACTIONS_BY_SURFACE[s].length > 0 && !hiddenKey.split(",").includes(s),
       ),
-    [],
+    [hiddenKey],
   );
 
   const query = nameSearch.trim().toLowerCase();

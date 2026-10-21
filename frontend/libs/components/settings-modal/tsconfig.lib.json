@@ -44,28 +44,13 @@
   ],
   "references": [
     {
+      "path": "../../icons/tsconfig.lib.json"
+    },
+    {
       "path": "../keybinds/tsconfig.lib.json"
     },
     {
-      "path": "../../tauri-utils/tsconfig.lib.json"
-    },
-    {
-      "path": "../../model-list/tsconfig.lib.json"
-    },
-    {
-      "path": "../popover/tsconfig.lib.json"
-    },
-    {
       "path": "../promptbox/tsconfig.lib.json"
-    },
-    {
-      "path": "../../state/subscription/tsconfig.lib.json"
-    },
-    {
-      "path": "../../state/credits/tsconfig.lib.json"
-    },
-    {
-      "path": "../pricing-modal/tsconfig.lib.json"
     },
     {
       "path": "../switch/tsconfig.lib.json"
@@ -77,22 +62,7 @@
       "path": "../../soundboard/tsconfig.lib.json"
     },
     {
-      "path": "../input/tsconfig.lib.json"
-    },
-    {
-      "path": "../../tauri-events/tsconfig.lib.json"
-    },
-    {
-      "path": "../login-modal/tsconfig.lib.json"
-    },
-    {
-      "path": "../../api/tsconfig.lib.json"
-    },
-    {
-      "path": "../../icons/tsconfig.lib.json"
-    },
-    {
-      "path": "../../analytics/google-analytics/tsconfig.lib.json"
+      "path": "../provider-setup-modal/tsconfig.lib.json"
     },
     {
       "path": "../label/tsconfig.lib.json"
@@ -105,9 +75,6 @@
     },
     {
       "path": "../modal/tsconfig.lib.json"
-    },
-    {
-      "path": "../provider-setup-modal/tsconfig.lib.json"
     }
   ]
 }

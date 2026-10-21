@@ -1,6 +1,6 @@
 import { Modal } from "@storyteller/ui-modal";
 import { useEffect, useState } from "react";
-import { CreditCardIcon, DownloadIcon, FlaskConicalIcon, InfoIcon, KeyboardIcon, PaletteIcon, SettingsIcon, UserIcon, Volume2Icon } from "lucide-react";
+import { DownloadIcon, FlaskConicalIcon, InfoIcon, KeyboardIcon, PaletteIcon, SettingsIcon, Volume2Icon, WandSparklesIcon } from "lucide-react";
 import { DynamicIcon } from "@storyteller/icons";
 import { twMerge } from "tailwind-merge";
 import { KeybindsSettings } from "@storyteller/keybinds";
@@ -9,10 +9,7 @@ import { DownloadsSettingsPane } from "./panes/DownloadsSettingsPane";
 import { AudioSettingsPane } from "./panes/AudioSettingsPane";
 import { AccountSettingsPane } from "./panes/AccountSettings/AccountSettingsPane";
 import { AboutSettingsPane } from "./panes/AboutSettingsPane";
-import { ProviderPrioritySettingsPane } from "./panes/ProviderPrioritySettingsPane";
 import { ExperimentalSettingsPane } from "./panes/ExperimentalSettingsPane";
-import { gtagEvent } from "@storyteller/google-analytics";
-import { BillingSettingsPane } from "./panes/BillingSettingsPane";
 import { AppearanceSettingsPane } from "./panes/AppearanceSettingsPane";
 import { Button } from "@storyteller/ui-button";
 import { useExperimentalStore } from "./experimental-store";
@@ -21,7 +18,6 @@ import { ExperimentalConfirmModal } from "./ExperimentalConfirmModal";
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  globalAccountLogoutCallback: () => void;
   onStoryboardPageDisable?: () => void;
   initialSection?: SettingsSection;
 }
@@ -34,14 +30,11 @@ type SettingsSection =
   | "accounts"
   | "alerts"
   | "about"
-  | "provider_priority"
-  | "billing"
   | "experimental";
 
 export const SettingsModal = ({
   isOpen,
   onClose,
-  globalAccountLogoutCallback,
   onStoryboardPageDisable,
   initialSection = "general",
 }: SettingsModalProps) => {
@@ -70,14 +63,8 @@ export const SettingsModal = ({
     { id: "general" as const, label: "General", icon: SettingsIcon },
     { id: "downloads" as const, label: "Downloads", icon: DownloadIcon },
 
-    { id: "accounts" as const, label: "Accounts", icon: UserIcon },
-    { id: "billing" as const, label: "Plan & Credits", icon: CreditCardIcon },
-
-    /* {
-      id: "provider_priority" as const,
-      label: "Provider Priority",
-      icon: RouteIcon,
-    }, */
+    // publik API (or the person's own key) is the only AI provider.
+    { id: "accounts" as const, label: "AI provider", icon: WandSparklesIcon },
     { id: "appearance" as const, label: "Appearance", icon: PaletteIcon },
     { id: "keybinds" as const, label: "Keybinds", icon: KeyboardIcon },
     { id: "alerts" as const, label: "Alerts", icon: Volume2Icon },
@@ -94,7 +81,8 @@ export const SettingsModal = ({
       case "appearance":
         return <AppearanceSettingsPane />;
       case "keybinds":
-        return <KeybindsSettings />;
+        // publik's build has no 3D editor, so its keybinds stay hidden.
+        return <KeybindsSettings hiddenSurfaces={["pagescene"]} />;
       case "alerts":
         return <AudioSettingsPane />;
       case "general":
@@ -102,17 +90,9 @@ export const SettingsModal = ({
       case "downloads":
         return <DownloadsSettingsPane />;
       case "accounts":
-        return (
-          <AccountSettingsPane
-            globalAccountLogoutCallback={globalAccountLogoutCallback}
-          />
-        );
+        return <AccountSettingsPane />;
       case "about":
         return <AboutSettingsPane />;
-      case "provider_priority":
-        return <ProviderPrioritySettingsPane />;
-      case "billing":
-        return <BillingSettingsPane />;
       case "experimental":
         return (
           <ExperimentalSettingsPane
@@ -124,7 +104,6 @@ export const SettingsModal = ({
 
   const handleConfirmReset = () => {
     disableExperimental();
-    gtagEvent("reset_experimental_menu", {});
     setIsResetConfirmOpen(false);
   };
 
@@ -155,12 +134,7 @@ export const SettingsModal = ({
                         ? "bg-base-fg/10 text-base-fg"
                         : "text-base-fg/70 hover:bg-base-fg/[0.06] hover:text-base-fg",
                     )}
-                    onClick={() => {
-                      gtagEvent("switch_settings_section", {
-                        section: section.id,
-                      });
-                      setSelectedSection(section.id);
-                    }}
+                    onClick={() => setSelectedSection(section.id)}
                   >
                     <div className="flex items-center gap-2.5 text-sm">
                       <DynamicIcon icon={section.icon} />

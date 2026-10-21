@@ -33,7 +33,6 @@ import {
   StoredCharacter,
   useEnterToGenerateStore,
 } from "./promptStore";
-import { gtagEvent } from "@storyteller/google-analytics";
 import type { UploadImageFn } from "./ImagePromptRow";
 import { ReferenceDeck } from "./deck/ReferenceDeck";
 import { KeyframeCards } from "./deck/KeyframeCards";
@@ -1065,7 +1064,6 @@ export const PromptBoxVideo = ({
 
     setIsEnqueueing(true);
 
-    gtagEvent("enqueue_video");
 
     const count = effectiveGenerationCount;
 

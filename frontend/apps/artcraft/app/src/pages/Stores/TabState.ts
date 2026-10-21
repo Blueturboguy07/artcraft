@@ -1,26 +1,23 @@
 import { create } from "zustand";
 
-export type TabId =
-  | "2D"
-  | "3D"
-  | "VIDEO"
-  | "EDIT"
-  | "IMAGE"
-  | "AUDIO"
-  | "APPS"
-  | "VIDEO_FRAME_EXTRACTOR"
-  | "VIDEO_WATERMARK_REMOVAL"
-  | "IMAGE_WATERMARK_REMOVAL"
-  | "IMAGE_TO_3D_OBJECT"
-  | "IMAGE_TO_3D_WORLD"
-  | "REMOVE_BACKGROUND"
-  | "ANGLES"
-  | "STORYBOARD"
-  | "BACKGROUND_CHANGE"
-  | "VIDEO_EDITOR"
-  | "MOODBOARD";
+// The pages publik's build shows. Video, 3D, VFX, background tools, angles, watermark
+// removers and the frame extractor have no tab: publik API cannot serve them.
+export const TAB_IDS = [
+  "IMAGE",
+  "2D",
+  "AUDIO",
+  "STORYBOARD",
+  "MOODBOARD",
+  "APPS",
+] as const;
 
-const DEFAULT_TAB: TabId = "APPS";
+export type TabId = (typeof TAB_IDS)[number];
+
+export const isTabId = (value: unknown): value is TabId =>
+  typeof value === "string" && (TAB_IDS as readonly string[]).includes(value);
+
+// The app opens on the Image page.
+const DEFAULT_TAB: TabId = "IMAGE";
 
 interface TabState {
   // Current active tab
@@ -41,6 +38,8 @@ export const useTabStore = create<TabState>((set, get) => ({
   tabData: {},
 
   setActiveTab: async (newTabId) => {
+    // A page without a tab (an old link or saved state) does nothing.
+    if (!isTabId(newTabId)) return false;
     // Don't do anything if we're already on this tab
     if (get().activeTabId === newTabId) return true;
 

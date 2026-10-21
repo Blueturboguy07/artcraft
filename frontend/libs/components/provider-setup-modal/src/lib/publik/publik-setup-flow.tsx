@@ -137,13 +137,14 @@ function PickStep({
   return (
     <div className="flex flex-col gap-4 text-base-fg">
       <p className="text-sm leading-relaxed text-base-fg/80">
-        ArtCraft can use AI for GPT Image 1 and for "Improve prompt". Pick how, or
-        come back to this later from Settings &gt; Accounts.
+        This app uses AI for images (GPT Image 1 and Nano Banana), "Improve
+        prompt", speech and transcription. Pick how to pay for it. You can change
+        it later in Settings &gt; AI provider.
       </p>
       <ChoiceCard
         title="publik API"
         inUse={status.provider === "publik"}
-        body="No key to paste. Priced per use in dollars from a publik balance; link this computer once for $0.05 of free use. You do not need an ArtCraft account."
+        body="No key to paste. You pay per use, in dollars, from a publik balance. Link this computer once to get $0.05 of free use."
       >
         {status.can_provision ? (
           <Button className="h-9 px-3" onClick={onPublik}>

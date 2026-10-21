@@ -1,25 +1,10 @@
-import { ArtcraftAccountBlock } from "./ArtcraftAccountBlock";
-import { MidjourneyAccountBlock } from "./MidjourneyAccountBlock";
-import { GrokAccountBlock } from "./GrokAccountBlock";
 import { PublikAccountBlock } from "./PublikAccountBlock";
 
-interface AccountSettingsPaneProps {
-  globalAccountLogoutCallback: () => void;
-}
-
-export const AccountSettingsPane = ({
-  globalAccountLogoutCallback,
-}: AccountSettingsPaneProps) => {
+// publik API (or the person's own key) is the only AI provider. There is no ArtCraft
+// account, and no Grok or Midjourney sign-in.
+export const AccountSettingsPane = () => {
   return (
     <div className="flex flex-col gap-5 pt-3 text-base-fg">
-      <ArtcraftAccountBlock
-        globalAccountLogoutCallback={globalAccountLogoutCallback}
-      />
-      <hr className="border-ui-panel-border" />
-      <GrokAccountBlock />
-      <hr className="border-ui-panel-border" />
-      <MidjourneyAccountBlock />
-      <hr className="border-ui-panel-border" />
       <PublikAccountBlock />
     </div>
   );

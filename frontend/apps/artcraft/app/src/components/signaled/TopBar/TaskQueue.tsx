@@ -1,4 +1,4 @@
-import { findDesktopModel } from "@storyteller/tauri-api";
+import { commandErrorMessage, findDesktopModel } from "@storyteller/tauri-api";
 import { Tooltip } from "@storyteller/ui-tooltip";
 import { PopoverMenu } from "@storyteller/ui-popover";
 import { BombIcon, BrushIcon, CheckIcon, CircleAlertIcon, CopyIcon, ListChecksIcon, LoaderCircleIcon, Trash2Icon, TriangleAlertIcon, XIcon } from "lucide-react";
@@ -37,8 +37,6 @@ import {
   THUMBNAIL_SIZES,
   getPlaceholderForMediaClass,
 } from "@storyteller/common";
-import { coverImageCache } from "~/pages/PageImageTo3DObject/ImageTo3DStore";
-import { useCreditsState } from "@storyteller/credits";
 import { getMetaForTask, cleanupOldEntries } from "./taskEnqueueMeta";
 import { twMerge } from "tailwind-merge";
 import dayjs from "dayjs";
@@ -752,16 +750,15 @@ export const TaskQueue = () => {
               (a.completed_at?.getTime() || a.updated_at.getTime()),
           )
           .map((t: TaskQueueItem) => {
-            const mediaToken = t.completed_item?.primary_media_file?.token;
-            // Try server thumbnail first, then fall back to local cache
+            // Try a thumbnail template first, then the file itself.
             const serverThumbnail = getThumbnailUrl(
               t.completed_item?.primary_media_file
                 ?.maybe_thumbnail_url_template,
               { width: THUMBNAIL_SIZES.MEDIUM },
             );
-            const cachedThumbnail = mediaToken
-              ? coverImageCache.get(mediaToken)
-              : undefined;
+            // Local results (publik) have no thumbnail template: show the file itself.
+            const localImage =
+              t.completed_item?.primary_media_file?.cdn_url || undefined;
 
             const meta = getMetaForTask(
               t.id,
@@ -772,7 +769,7 @@ export const TaskQueue = () => {
             return {
               id: t.id,
               ...formatTitleParts(t),
-              thumbnailUrl: serverThumbnail || cachedThumbnail || undefined,
+              thumbnailUrl: serverThumbnail || localImage || undefined,
               prompt: meta?.prompt,
               imageUrls: t.completed_item?.primary_media_file?.cdn_url
                 ? [t.completed_item?.primary_media_file?.cdn_url]
@@ -808,9 +805,13 @@ export const TaskQueue = () => {
             const failureReason = fr
               ? FAILURE_REASON_LABEL[fr.failure_type] || undefined
               : undefined;
+            // Never show a raw server body: a JSON message becomes undefined.
+            const plainMessage = fr?.failure_message
+              ? commandErrorMessage(fr.failure_message, "") || undefined
+              : undefined;
             const failureMessage =
-              fr?.failure_message && fr.failure_type !== "unknown"
-                ? fr.failure_message
+              plainMessage && fr?.failure_type !== "unknown"
+                ? plainMessage
                 : undefined;
             const meta = getMetaForTask(
               t.id,
@@ -823,7 +824,7 @@ export const TaskQueue = () => {
               subtitle: parts.subtitle,
               failedAt: t.completed_at || t.updated_at,
               status: t.task_status,
-              failureReason: failureReason || fr?.failure_message || undefined,
+              failureReason: failureReason || plainMessage || "The request failed. Try again.",
               failureMessage,
               prompt: meta?.prompt,
               refImageUrls: meta?.refImageUrls,
@@ -834,18 +835,9 @@ export const TaskQueue = () => {
         setCompleted(done);
         setFailed(failedTasks);
 
-        // Refresh credits when a task newly enters a failed status via the
-        // poll — the "generation-failed-event" push below can be missed.
         const newFailedIdSet = new Set(failedTasks.map((t) => t.id));
         if (!failedSeenInitializedRef.current) {
           failedSeenInitializedRef.current = true;
-        } else if (
-          failedTasks.some((t) => !prevFailedIdsRef.current.has(t.id))
-        ) {
-          // Refunded credits may take a moment to settle in the database
-          setTimeout(() => {
-            useCreditsState.getState().fetchFromServer();
-          }, 2000);
         }
         prevFailedIdsRef.current = newFailedIdSet;
 
@@ -894,10 +886,6 @@ export const TaskQueue = () => {
       unlistenFailed = listen("generation-failed-event", () => {
         if (!cancelled) {
           load();
-          // Refunded credits may take a moment to settle in the database
-          setTimeout(() => {
-            useCreditsState.getState().fetchFromServer();
-          }, 2000);
         }
       });
     })();

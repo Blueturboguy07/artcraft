@@ -37,16 +37,13 @@
       "path": "../../libs/components/vfx"
     },
     {
-      "path": "../../libs/omni-gen"
-    },
-    {
       "path": "../../libs/components/slider-v2"
     },
     {
       "path": "../../libs/components/loading-spinner"
     },
     {
-      "path": "../../libs/components/login-modal"
+      "path": "../../libs/components/provider-setup-modal"
     },
     {
       "path": "../../libs/soundboard"
@@ -61,19 +58,7 @@
       "path": "../../libs/components/menu-icon-selector"
     },
     {
-      "path": "../../libs/state/subscription"
-    },
-    {
-      "path": "../../libs/components/provider-setup-modal"
-    },
-    {
-      "path": "../../libs/components/provider-billing-modal"
-    },
-    {
-      "path": "../../libs/analytics/google-analytics"
-    },
-    {
-      "path": "../../libs/state/credits"
+      "path": "../../libs/common"
     },
     {
       "path": "../../libs/api-enums"
@@ -86,9 +71,6 @@
     },
     {
       "path": "../../libs/components/popover"
-    },
-    {
-      "path": "../../libs/components/gravatar"
     },
     {
       "path": "../../libs/components/modal"
@@ -109,9 +91,6 @@
       "path": "../../libs/components/checkbox"
     },
     {
-      "path": "../../libs/common"
-    },
-    {
       "path": "../../libs/tauri-events"
     },
     {
@@ -119,6 +98,9 @@
     },
     {
       "path": "../../libs/components/toaster"
+    },
+    {
+      "path": "../../libs/icons"
     },
     {
       "path": "../../libs/components/help-menu"
@@ -152,9 +134,6 @@
     },
     {
       "path": "../../libs/components/upload-modal"
-    },
-    {
-      "path": "../../libs/icons"
     },
     {
       "path": "../../libs/tauri-api"

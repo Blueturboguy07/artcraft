@@ -9,13 +9,13 @@ import { usePublikStore } from "./publik-store";
 const FIRST_RUN_DELAY_MS = 1500;
 
 export interface PublikSetupModalProps {
-  /** Another dialog (the ArtCraft sign-in) is on screen. The card waits for it to close. */
+  /** Another dialog is on screen. The card waits for it to close. Off by default. */
   blocked?: boolean;
 }
 
 /**
- * The publik setup card. It opens once on the first launch (closed for good by "Later"), and
- * whenever the prompt box or the sign-in screen asks for it.
+ * The publik setup card: the app's onboarding. It opens once on the first launch (closed for
+ * good by "Later"), and whenever a page asks for it (for example Generate before AI is set up).
  */
 export function PublikSetupModal({ blocked = false }: PublikSetupModalProps) {
   const isSetupOpen = usePublikStore((s) => s.isSetupOpen);

@@ -105,9 +105,6 @@
       "@storyteller/ui-loading-spinner": [
         "libs/components/loading-spinner/src/index.ts"
       ],
-      "@storyteller/ui-login-modal": [
-        "libs/components/login-modal/src/index.ts"
-      ],
       "@storyteller/ui-menu-icon-selector": [
         "libs/components/menu-icon-selector/src/index.ts"
       ],

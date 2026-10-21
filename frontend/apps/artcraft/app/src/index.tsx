@@ -1,56 +1,18 @@
 import { StrictMode, useEffect } from "react";
-import { useSignals, useSignalEffect } from "@preact/signals-react/runtime";
 import { BrowserRouter } from "react-router-dom";
 import { MainApp } from "./pages/MainApp";
-import { GlobalFileDropHandler } from "./components/GlobalFileDropHandler/GlobalFileDropHandler";
 import { createRoot } from "react-dom/client";
 import "./styles/normalize.css";
 import "./styles/tailwind.css";
 import "./styles/base.css";
-import EnvironmentVariables from "~/Classes/EnvironmentVariables";
-import { pageHeight, pageWidth, persistLogin } from "~/signals";
-import { SyncStorytellerApiConfig } from "./api/SyncStorytellerApiConfig";
-import { posthog } from "posthog-js";
+import { pageHeight, pageWidth } from "~/signals/global";
 import { SoundManager } from "@storyteller/soundboard";
-import { useModelsStore } from "@storyteller/tauri-api";
 
-// TODO(bt,2025-04-19): Make these configurable
-const ENV = {
-  GOOGLE_API: "https://studio.storyteller.ai",
-  FUNNEL_API: "https://studio.storyteller.ai",
-  CDN_API: "https://cdn-2.fakeyou.com",
-  GRAVATAR_API: "https://studio.storyteller.ai",
-  DEPLOY_PRIME_URL: "https://studio.storyteller.ai",
-};
+// publik's build: no account, no session probe, no telemetry and no model listing from a
+// server on launch. The AI step is publik API (or the person's own key), set up through the
+// publik setup card.
 
-const GlobalSettingsManager = ({ env }: { env: Record<string, string> }) => {
-  console.log("GlobalSettingsManager()");
-
-  SyncStorytellerApiConfig();
-
-  useSignals();
-
-  useSignalEffect(() => {
-    persistLogin();
-  });
-
-  /// Initizations that depends on ENV vars ///
-  function PostHogInit() {
-    const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
-    posthog.init(apiKey, {
-      api_host: "https://us.i.posthog.com/",
-      ui_host: "https://us.i.posthog.com/",
-    });
-  }
-
-  useEffect(() => {
-    EnvironmentVariables.initialize(env);
-    if (import.meta.env.DEV) {
-      return;
-    }
-    PostHogInit();
-  }, [env]);
-
+const GlobalSettingsManager = () => {
   // Apply stored theme early on mount
   useEffect(() => {
     const key = "st-theme";
@@ -86,25 +48,16 @@ const GlobalSettingsManager = ({ env }: { env: Record<string, string> }) => {
     SoundManager.install();
   }, []);
 
-  // Reconcile the model dropdowns against the backend omni listing once on boot.
-  // The store is already seeded with the static overlay, so a failure here is a
-  // no-op (the UI keeps the overlay models).
-  useEffect(() => {
-    void useModelsStore.getState().loadModelsFromBackend();
-  }, []);
-
   return null;
 };
 
-// TODO: Replace environment variables from `root.tsx`
 createRoot(document.getElementById("root")!).render(
   <>
     <StrictMode>
       <BrowserRouter>
-        <GlobalSettingsManager env={ENV} />
+        <GlobalSettingsManager />
         <div className="topbar-spacer" data-tauri-drag-region={true} />
         <MainApp />
-        <GlobalFileDropHandler />
       </BrowserRouter>
     </StrictMode>
   </>,

@@ -63,10 +63,23 @@ it("honors the latest rapid navigation request", async () => {
   await useTabStore.getState().setActiveTab("2D");
   const results = await Promise.all([
     useTabStore.getState().setActiveTab("IMAGE"),
-    useTabStore.getState().setActiveTab("VIDEO"),
+    useTabStore.getState().setActiveTab("AUDIO"),
   ]);
   expect(results).toEqual([true, true]);
-  expect(useTabStore.getState().activeTabId).toBe("VIDEO");
+  expect(useTabStore.getState().activeTabId).toBe("AUDIO");
+});
+
+it("opens on the Image page", () => {
+  expect(useTabStore.getInitialState().activeTabId).toBe("IMAGE");
+});
+
+it("ignores pages that publik's build does not show", async () => {
+  await useTabStore.getState().setActiveTab("2D");
+  for (const hidden of ["VIDEO", "3D", "VIDEO_EDITOR", "IMAGE_TO_3D_OBJECT", "ANGLES"]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await useTabStore.getState().setActiveTab(hidden as any)).toBe(false);
+  }
+  expect(useTabStore.getState().activeTabId).toBe("2D");
 });
 
 it("still exports a portable scene when explicitly requested", async () => {

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Label } from "@storyteller/ui-label";
 import { Switch } from "@storyteller/ui-switch";
-import { gtagEvent } from "@storyteller/google-analytics";
 import { useExperimentalStore } from "../experimental-store";
 import { ExperimentalConfirmModal } from "../ExperimentalConfirmModal";
 
@@ -20,17 +19,9 @@ export const ExperimentalSettingsPane = ({ onStoryboardPageDisable }: Props) => 
   );
   const [isDisableConfirmOpen, setIsDisableConfirmOpen] = useState(false);
 
-  const fireToggleEvent = (enabled: boolean) => {
-    gtagEvent("toggle_experimental_feature", {
-      feature: "storyboard_page",
-      enabled: String(enabled),
-    });
-  };
-
   const handleStoryboardToggle = (enabled: boolean) => {
     if (enabled) {
       setStoryboardPageEnabled(true);
-      fireToggleEvent(true);
     } else {
       setIsDisableConfirmOpen(true);
     }
@@ -39,7 +30,6 @@ export const ExperimentalSettingsPane = ({ onStoryboardPageDisable }: Props) => 
   const handleConfirmDisable = () => {
     onStoryboardPageDisable?.();
     setStoryboardPageEnabled(false);
-    fireToggleEvent(false);
     setIsDisableConfirmOpen(false);
   };
 

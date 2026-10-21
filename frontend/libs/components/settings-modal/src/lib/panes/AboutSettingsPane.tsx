@@ -5,7 +5,6 @@ import {
 } from "@storyteller/tauri-api";
 import { Label } from "@storyteller/ui-label";
 import { toast } from "react-hot-toast";
-import { gtagEvent } from "@storyteller/google-analytics";
 import { useExperimentalStore } from "../experimental-store";
 
 const UNLOCK_CLICK_COUNT = 7;
@@ -39,7 +38,6 @@ export const AboutSettingsPane = (args: AboutSettingsPaneProps) => {
     if (recent.length >= UNLOCK_CLICK_COUNT) {
       clickTimes.current = [];
       enable();
-      gtagEvent("unlock_experimental_menu", {});
       toast.success("Experimental features unlocked");
     }
   };
@@ -58,11 +56,6 @@ export const AboutSettingsPane = (args: AboutSettingsPaneProps) => {
           >
             {appInfo?.artcraft_version}
           </div>
-        </div>
-
-        <div className="space-y-1">
-          <Label>Artcraft Host</Label>
-          <div className="break-all text-sm font-medium">{appInfo?.storyteller_host}</div>
         </div>
 
         <div className="space-y-1">
