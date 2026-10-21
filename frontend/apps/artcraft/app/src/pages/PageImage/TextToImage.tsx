@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { JobContextType } from "@storyteller/common";
-import { PromptBoxImage } from "@storyteller/ui-promptbox";
-import { UploadImageMedia, FilterMediaClasses } from "@storyteller/api";
+import { PromptBoxImage, publikUploadImage } from "@storyteller/ui-promptbox";
 import {
   useTextToImagePageModelList,
   ModelPage,
@@ -18,25 +17,18 @@ import {
   galleryModalLightboxNavPrev,
   galleryModalLightboxNavNext,
 } from "@storyteller/ui-gallery-modal";
-import { HelpMenuButton } from "@storyteller/ui-help-menu";
-import {
-  CostCalculatorButton,
-  useCostBreakdownModalStore,
-} from "@storyteller/ui-pricing-modal";
 import { GenerationProvider } from "@storyteller/api-enums";
 import {
-  useGalleryData,
   useLastViewedGenerationStore,
   type GalleryItem,
 } from "@storyteller/ui-generation-list";
 import { useDesktopGenerationFeed } from "~/components/generation-feed/useDesktopGenerationFeed";
-import { useDesktopUsername } from "~/components/generation-feed/useDesktopUsername";
 import { DesktopCreatePageShell } from "~/components/generation-feed/DesktopCreatePageShell";
 import { DesktopGenerationGallery } from "~/components/generation-feed/DesktopGenerationGallery";
 
 const PAGE_ID: ModelPage = ModelPage.TextToImage;
 
-const IMAGE_FILTER = [FilterMediaClasses.IMAGE];
+const NO_MORE_PAGES = () => {};
 
 interface TextToImageProps {
   imageMediaId?: string;
@@ -54,10 +46,6 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
 
   const selectedProvider: GenerationProvider | undefined =
     useSelectedProviderForModel(PAGE_ID, selectedImageModel?.id);
-
-  const imageCredits = useCostBreakdownModalStore(
-    (s) => s.estimatedCreditsByPage[PAGE_ID],
-  );
 
   const jobContext: JobContextType = {
     jobTokens: [],
@@ -77,23 +65,17 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
     return () => ro.disconnect();
   }, []);
 
-  // The merged generation feed: in-progress / failed from the Tauri task
-  // queue, completed history from the library (like the webapp list view).
-  const username = useDesktopUsername();
+  // The feed: in progress and failed from the local task queue, finished
+  // images from the "image complete" event, history from the local library.
   const feed = useDesktopGenerationFeed({ mediaType: "image" });
-  const gallery = useGalleryData({
-    username,
-    filterMediaClasses: IMAGE_FILTER,
-    excludeUploads: true,
-  });
 
-  // Content only — while the gallery is still loading the shell keeps the
-  // hero + background up as a splash and fades them out when items land.
+  // Content only: while the library loads, the shell keeps the hero and the
+  // background up, and fades them out when items show.
   const hasContent =
     feed.inProgress.length > 0 ||
     feed.failed.length > 0 ||
     feed.newlyCompleted.length > 0 ||
-    gallery.items.length > 0;
+    feed.history.length > 0;
 
   const newlyCompletedTokens = useMemo(
     () => new Set(feed.newlyCompleted.map((item) => item.id)),
@@ -110,7 +92,7 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
         merged.push(item);
       }
     }
-    for (const item of gallery.items) {
+    for (const item of feed.history) {
       if (!seen.has(item.id)) {
         seen.add(item.id);
         merged.push(item);
@@ -121,13 +103,13 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
     return merged;
-  }, [feed.newlyCompleted, gallery.items]);
+  }, [feed.newlyCompleted, feed.history]);
 
   const flatCompletedRef = useRef(flatCompleted);
   flatCompletedRef.current = flatCompleted;
 
-  // Open a completed row in the global lightbox (rendered by TopBar's
-  // gallery modal); prev/next walk the merged feed order.
+  // Open a finished item in the lightbox (the top bar's library renders it).
+  // Previous and next walk the feed order.
   const lastViewedId = useLastViewedGenerationStore((s) => s.id);
 
   const openInLightbox = useCallback((item: GalleryItem) => {
@@ -141,6 +123,8 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
         ? () => openInLightbox(list[index + 1])
         : null;
     galleryModalLightboxMediaId.value = item.id;
+    // The library fills in the batch, the prompt and the model by id; these
+    // fields cover an item that the library does not list yet.
     galleryModalLightboxImage.value = {
       id: item.id,
       label: item.label,
@@ -148,6 +132,11 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
       fullImage: item.fullImage,
       createdAt: item.createdAt,
       mediaClass: item.mediaClass,
+      modelId: item.modelId,
+      prompt: item.prompt,
+      batchImageToken: item.batchImageToken,
+      mediaTokens: (item as { mediaTokens?: string[] }).mediaTokens,
+      imageUrls: (item as { imageUrls?: string[] }).imageUrls,
     };
     galleryModalLightboxVisible.value = true;
   }, []);
@@ -156,7 +145,9 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
     <DesktopCreatePageShell
       hasContent={hasContent}
       emptyStateTitle="Create Image"
-      emptyStateSubtitle="Add a prompt, then generate"
+      emptyStateSubtitle={
+        feed.historyError ?? "Write a prompt to make an image."
+      }
       bottomOffset={promptHeight + 40}
       listContent={
         <DesktopGenerationGallery
@@ -164,15 +155,13 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
           failedJobs={feed.failed}
           onDismissFailed={feed.dismissFailed}
           newlyCompletedItems={feed.newlyCompleted}
-          galleryItems={gallery.items}
+          galleryItems={feed.history}
           newlyCompletedTokens={newlyCompletedTokens}
-          hasMore={gallery.hasMore}
-          isLoading={gallery.isLoading}
-          isInitialLoading={gallery.isInitialLoading}
-          onLoadMore={gallery.loadMore}
+          hasMore={false}
+          isInitialLoading={feed.isHistoryLoading}
+          onLoadMore={NO_MORE_PAGES}
           onGalleryItemClick={openInLightbox}
           lastViewedId={lastViewedId}
-          enableMakeVideo
           selectable
           selectionBarBottomOffset={promptHeight + 32}
         />
@@ -184,12 +173,11 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
               useJobContext={() => {
                 return jobContext;
               }}
-              uploadImage={UploadImageMedia}
+              uploadImage={publikUploadImage}
               selectedModel={selectedImageModel}
               selectedProvider={selectedProvider}
               imageMediaId={imageMediaId}
               url={imageUrl ?? undefined}
-              credits={imageCredits}
               modelSelector={
                 <ClassyModelSelector
                   variant="embedded"
@@ -206,19 +194,13 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
                   subscriberId,
                   selectedImageModel?.creator,
                 );
-                // Nudge the feed (and the TopBar task queue) to refetch so the
-                // pending row appears immediately.
+                // Tell the feed (and the top bar task queue) to load again, so
+                // the pending row shows at once.
                 window.dispatchEvent(new Event("task-queue-update"));
               }}
             />
           </div>
         </div>
-      }
-      bottomRight={
-        <>
-          <CostCalculatorButton modelPage={PAGE_ID} />
-          <HelpMenuButton />
-        </>
       }
     />
   );

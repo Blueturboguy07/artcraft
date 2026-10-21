@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GalleryItem, GalleryModal } from "@storyteller/ui-gallery-modal";
 import { type UploadMediaFn } from "@storyteller/api";
-import { downloadFileFromUrl } from "@storyteller/tauri-api";
 import { toast } from "@storyteller/ui-toaster";
 import { UploaderStates } from "@storyteller/common";
 import {
@@ -813,7 +812,6 @@ export function useDeckMedia<
               : Math.max(1, availableImageSlots)
       }
       onUseSelected={handleGalleryImages}
-      onDownloadClicked={downloadFileFromUrl}
       useSelectedLoading={isProcessingGallery}
       forceFilter={
         galleryTarget === "video"

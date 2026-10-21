@@ -94,7 +94,8 @@ export function GenerationGridView({
       mergedEntries.flatMap((entry) =>
         entry.kind === "gallery" &&
         entry.item.mediaClass === "audio" &&
-        !entry.item.promptToken
+        !entry.item.promptToken &&
+        entry.item.prompt === undefined
           ? [entry.item.id]
           : [],
       ),
@@ -121,6 +122,8 @@ export function GenerationGridView({
   const audioTitleFor = useCallback(
     (item: GalleryItem): string | undefined => {
       if (item.mediaClass !== "audio") return undefined;
+      // Local items carry their prompt: nothing to look up.
+      if (item.prompt !== undefined) return item.prompt.trim() || undefined;
       const token = item.promptToken || resolvedPromptTokens.get(item.id);
       return (
         (token ? promptsMap.get(token)?.maybe_positive_prompt : undefined) ||

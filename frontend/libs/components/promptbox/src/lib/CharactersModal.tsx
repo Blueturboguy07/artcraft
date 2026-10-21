@@ -7,7 +7,6 @@ import {
   Character,
   MediaUploadApi,
 } from "@storyteller/api";
-import { downloadFileFromUrl } from "@storyteller/tauri-api";
 import { toast } from "@storyteller/ui-toaster";
 import { v4 as uuidv4 } from "uuid";
 import { GalleryItem, GalleryModal } from "@storyteller/ui-gallery-modal";
@@ -996,7 +995,6 @@ const NewCharacterView = ({
           setIsGalleryOpen(false);
           setSelectedGalleryImages([]);
         }}
-        onDownloadClicked={downloadFileFromUrl}
         forceFilter="image"
       />
     </div>

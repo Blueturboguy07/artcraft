@@ -53,6 +53,9 @@ export interface GalleryItem {
   // Token for the generation's prompt record. The list view resolves it
   // (via the shared prompts cache) to show the real prompt + model.
   promptToken?: string;
+  // The prompt text, when the host already has it (local items). When set
+  // (even to ""), the views show it as is and skip the prompt lookups.
+  prompt?: string;
   // Playback length for audio (and video) items, when the API knows it.
   durationMillis?: number;
 }

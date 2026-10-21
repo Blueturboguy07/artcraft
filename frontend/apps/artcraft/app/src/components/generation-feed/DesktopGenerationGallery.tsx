@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDownToLineIcon, CheckIcon, LinkIcon, LoaderCircleIcon, RotateCwIcon, VideoIcon } from "lucide-react";
+import { ArrowDownToLineIcon, LoaderCircleIcon, RotateCwIcon } from "lucide-react";
 import { DynamicIcon } from "@storyteller/icons";
 import { Tooltip } from "@storyteller/ui-tooltip";
 import { toast } from "@storyteller/ui-toaster";
@@ -14,17 +14,14 @@ import {
   type InProgressJob,
 } from "@storyteller/ui-generation-list";
 import {
-  applyMakeVideoFromImage,
-  applyRecreateFromPromptToken,
-  copyShareLink,
+  applyRecreateFromPrompt,
   downloadMediaFileToDisk,
   downloadMediaFilesToFolder,
 } from "./desktopMediaActions";
 
-// Desktop twin of the webapp's GenerationGallery: renders the shared feed in
-// whichever layout the TopBar toggle picked (grid by default), injecting the
-// desktop flavors of the quick actions (recreate / make-video / share /
-// download) through the views' render-prop seams.
+// The feed of a create page, in the layout the top bar toggle picked (grid by
+// default), with the quick actions ("Use this prompt", "Download") on each
+// finished item.
 
 export interface DesktopGenerationGalleryProps {
   inProgressJobs: InProgressJob[];
@@ -41,7 +38,7 @@ export interface DesktopGenerationGalleryProps {
   /** Id of the item most recently viewed in the lightbox; that tile gets a
    *  persistent "Last viewed" badge. */
   lastViewedId?: string | null;
-  /** Image page only: show a "Make Video" quick action on image items. */
+  /** @deprecated No video. Accepted and ignored. */
   enableMakeVideo?: boolean;
   /** Enables the multi-select + batch download flow (select toggle in the
    *  TopBar, checkboxes on completed items, floating download bar). */
@@ -52,7 +49,7 @@ export interface DesktopGenerationGalleryProps {
 }
 
 export function DesktopGenerationGallery({
-  enableMakeVideo,
+  enableMakeVideo: _enableMakeVideo,
   selectable,
   selectionBarBottomOffset,
   ...feedProps
@@ -70,9 +67,9 @@ export function DesktopGenerationGallery({
 
   const handleCopyResult = useCallback((success: boolean) => {
     if (success) {
-      toast.success("Prompt copied");
+      toast.success("Prompt copied.");
     } else {
-      toast.error("Unable to copy prompt");
+      toast.error("Could not copy the prompt.");
     }
   }, []);
 
@@ -95,13 +92,8 @@ export function DesktopGenerationGallery({
         <GenerationListView
           {...feedProps}
           {...selectionProps}
-          renderGalleryActions={(item, ctx) => (
-            <ItemActions
-              item={item}
-              promptToken={ctx.promptToken ?? item.promptToken}
-              enableMakeVideo={enableMakeVideo}
-              variant="row"
-            />
+          renderGalleryActions={(item) => (
+            <ItemActions item={item} variant="row" />
           )}
           onCopyPromptResult={handleCopyResult}
         />
@@ -115,13 +107,8 @@ export function DesktopGenerationGallery({
       <GenerationGridView
         {...feedProps}
         {...selectionProps}
-        renderGalleryActions={(item, ctx) => (
-          <ItemActions
-            item={item}
-            promptToken={ctx.promptToken ?? item.promptToken}
-            enableMakeVideo={enableMakeVideo}
-            variant="card"
-          />
+        renderGalleryActions={(item) => (
+          <ItemActions item={item} variant="card" />
         )}
       />
       {selectionBar}
@@ -133,9 +120,8 @@ function handleToggleSelect(item: GalleryItem) {
   useGallerySelectionStore.getState().toggle(item.id);
 }
 
-// Floating bar shown in select mode: "Download" prompts for a folder and
-// saves each selected item as its own file (native flow — no zip). Sits
-// above the floating promptbox.
+// Floating bar in select mode: "Download" saves each selected item to the
+// downloads folder as its own file. It sits above the floating prompt box.
 function SelectionDownloadBar({
   newlyCompletedItems,
   galleryItems,
@@ -156,7 +142,7 @@ function SelectionDownloadBar({
     );
     return Array.from(ids)
       .map((id) => byId.get(id))
-      .filter((it): it is GalleryItem => !!it?.fullImage);
+      .filter((it): it is GalleryItem => !!it);
   }, [newlyCompletedItems, galleryItems, ids]);
 
   const handleDownload = useCallback(async () => {
@@ -192,37 +178,21 @@ function SelectionDownloadBar({
   );
 }
 
-// Quick actions for a completed item — desktop equivalents of the webapp's
-// useGalleryItemActions: recreate re-seeds the create page from the prompt
-// record, make-video seeds the video page, share copies the public media
-// link, download saves via Tauri. stopPropagation keeps taps from also
-// opening the lightbox.
+// Quick actions for a finished item. "Use this prompt" puts the prompt (and
+// the model) back into the image prompt box; "Download" saves the local file
+// to the downloads folder. stopPropagation keeps a click from also opening the
+// lightbox.
 function ItemActions({
   item,
-  promptToken,
-  enableMakeVideo,
   variant,
 }: {
   item: GalleryItem;
-  promptToken?: string;
-  enableMakeVideo?: boolean;
   variant: "row" | "card";
 }) {
-  const [isRecreating, setIsRecreating] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [shareCopied, setShareCopied] = useState(false);
 
-  const isVideo = item.mediaClass === "video";
-  const is3D = item.mediaClass === "dimensional";
-  const isAudio = item.mediaClass === "audio";
-  // Audio v1: no recreate / make-video — share + download only.
-  const recreateMediaClass: "image" | "video" | null = isVideo
-    ? "video"
-    : is3D || isAudio
-      ? null
-      : "image";
-  const canRecreate = !!promptToken && !!recreateMediaClass;
-  const canMakeVideo = !!enableMakeVideo && !isVideo && !is3D && !isAudio;
+  const prompt = item.prompt?.trim() ?? "";
+  const canRecreate = !!prompt && item.mediaClass === "image";
 
   const buttonClass =
     variant === "card"
@@ -230,114 +200,56 @@ function ItemActions({
       : "flex h-8 w-8 items-center justify-center text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60";
 
   const handleRecreate = useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!promptToken || !recreateMediaClass || isRecreating) return;
-      setIsRecreating(true);
-      try {
-        await applyRecreateFromPromptToken(promptToken, recreateMediaClass);
-      } finally {
-        setIsRecreating(false);
-      }
-    },
-    [promptToken, recreateMediaClass, isRecreating],
-  );
-
-  const handleMakeVideo = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      const url = item.fullImage || item.thumbnail;
-      if (!url) return;
-      applyMakeVideoFromImage(url, item.id);
+      if (!prompt) return;
+      applyRecreateFromPrompt(prompt, item.modelId);
     },
-    [item.fullImage, item.thumbnail, item.id],
-  );
-
-  const handleShare = useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation();
-      const ok = await copyShareLink(item.id);
-      if (ok) {
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 1500);
-      }
-    },
-    [item.id],
+    [prompt, item.modelId],
   );
 
   const handleDownload = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!item.fullImage || isDownloading) return;
+      if (isDownloading) return;
       setIsDownloading(true);
       try {
-        await downloadMediaFileToDisk(item.fullImage, item.mediaClass, item.modelId);
+        await downloadMediaFileToDisk(item.id, item.mediaClass);
       } finally {
         setIsDownloading(false);
       }
     },
-    [item.fullImage, item.mediaClass, isDownloading],
+    [item.id, item.mediaClass, isDownloading],
   );
 
   return (
     <>
       {canRecreate && (
-        <Tooltip content="Recreate" position="top">
+        <Tooltip content="Use this prompt" position="top">
           <button
             type="button"
             onClick={handleRecreate}
-            disabled={isRecreating}
-            aria-label="Recreate"
+            aria-label="Use this prompt"
             className={buttonClass}
           >
-            <DynamicIcon
-              icon={isRecreating ? LoaderCircleIcon : RotateCwIcon}
-              className={`text-sm ${isRecreating ? "animate-spin" : ""}`}
-            />
+            <RotateCwIcon className="text-sm" />
           </button>
         </Tooltip>
       )}
-      {canMakeVideo && (
-        <Tooltip content="Make Video" position="top">
-          <button
-            type="button"
-            onClick={handleMakeVideo}
-            aria-label="Make Video"
-            className={buttonClass}
-          >
-            <VideoIcon className="text-sm" />
-          </button>
-        </Tooltip>
-      )}
-      <Tooltip content={shareCopied ? "Copied" : "Share"} position="top">
+      <Tooltip content="Download" position="top">
         <button
           type="button"
-          onClick={handleShare}
-          aria-label="Share"
+          onClick={handleDownload}
+          disabled={isDownloading}
+          aria-label="Download"
           className={buttonClass}
         >
           <DynamicIcon
-            icon={shareCopied ? CheckIcon : LinkIcon}
-            className="text-sm"
+            icon={isDownloading ? LoaderCircleIcon : ArrowDownToLineIcon}
+            className={`text-sm ${isDownloading ? "animate-spin" : ""}`}
           />
         </button>
       </Tooltip>
-      {item.fullImage && (
-        <Tooltip content="Download" position="top">
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={isDownloading}
-            aria-label="Download"
-            className={buttonClass}
-          >
-            <DynamicIcon
-              icon={isDownloading ? LoaderCircleIcon : ArrowDownToLineIcon}
-              className={`text-sm ${isDownloading ? "animate-spin" : ""}`}
-            />
-          </button>
-        </Tooltip>
-      )}
     </>
   );
 }

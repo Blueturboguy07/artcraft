@@ -3,40 +3,10 @@
   "include": [],
   "references": [
     {
-      "path": "../../common"
-    },
-    {
-      "path": "../../model-list"
-    },
-    {
-      "path": "../action-reminder-modal"
-    },
-    {
       "path": "../toaster"
     },
     {
-      "path": "../gravatar"
-    },
-    {
-      "path": "../../api"
-    },
-    {
-      "path": "../../analytics/google-analytics"
-    },
-    {
-      "path": "../audio-player"
-    },
-    {
-      "path": "../viewer-3d"
-    },
-    {
       "path": "../loading-spinner"
-    },
-    {
-      "path": "../../tauri-api"
-    },
-    {
-      "path": "../../icons"
     },
     {
       "path": "../button"

@@ -1,24 +1,17 @@
-import { findDesktopModel } from "@storyteller/tauri-api";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { GetTaskQueue, MarkTaskAsDismissed } from "@storyteller/tauri-api";
+import {
+  findDesktopModel,
+  GetTaskQueue,
+  MarkTaskAsDismissed,
+} from "@storyteller/tauri-api";
 import type { TaskQueueItem } from "@storyteller/tauri-api";
+import { useTextToImageGenerationCompleteEvent } from "@storyteller/tauri-events";
+import { ALL_MODELS_LIST, getModelDisplayName } from "@storyteller/model-list";
 import {
-  useTextToImageGenerationCompleteEvent,
-  useVideoGenerationCompleteEvent,
-} from "@storyteller/tauri-events";
-import { MediaFilesApi } from "@storyteller/api";
-import {
-  getMediaStillThumbnail,
-  getMediaThumbnail,
-  getThumbnailUrl,
-  THUMBNAIL_SIZES,
-} from "@storyteller/common";
-import {
-  ALL_MODELS_LIST,
-  getModelDisplayName,
-  getProviderDisplayName,
-} from "@storyteller/model-list";
+  publikBatchToken,
+  usePublikLibrary,
+} from "@storyteller/ui-gallery-modal";
 import type {
   FailedJob,
   GalleryItem,
@@ -29,16 +22,14 @@ import {
   cleanupOldEntries,
 } from "../signaled/TopBar/taskEnqueueMeta";
 
-// Desktop twin of the webapp's useGenerationJobs: feeds the shared
-// GenerationListView from the Tauri task queue instead of JobsApi. Polls every
-// 5s and reloads instantly on Tauri generation events / local enqueues.
+// The feed of a create page:
+// - in progress and failed: the local task queue (polled every 5 s and reloaded
+//   on Rust events and local enqueues);
+// - just finished: the images in the "image complete" event, shown at once;
+// - history: the local library (`publik_list_results_command`).
+// Nothing comes from an ArtCraft account.
 
 const POLL_INTERVAL_MS = 5000;
-
-// Newly completed videos that arrived without a thumbnail URL are looked up
-// again on this interval, for up to MISSING_THUMBNAIL_GIVE_UP_MS.
-const MISSING_THUMBNAIL_POLL_MS = 15_000;
-const MISSING_THUMBNAIL_GIVE_UP_MS = 10 * 60_000;
 
 const FAILED_STATUSES = new Set([
   "complete_failure",
@@ -50,42 +41,54 @@ const FAILED_STATUSES = new Set([
 ]);
 
 const FAILURE_REASON_LABEL: Record<string, string> = {
-  rule_bans_user_image: "Image violates content policy",
-  rule_bans_user_image_with_faces: "Images with faces are not allowed",
-  rule_bans_user_text_prompt: "Text prompt violates content policy",
-  rule_bans_user_content: "Content violates content policy",
-  rule_bans_generated_video: "Generated video flagged by content policy",
-  rule_bans_generated_audio: "Generated audio flagged by content policy",
-  rule_bans_generated_content: "Generated content flagged by content policy",
-  generation_failed: "Generation failed",
-  unknown: "An unknown error occurred",
+  rule_bans_user_image: "The image is not allowed by the content policy.",
+  rule_bans_user_image_with_faces: "Images with faces are not allowed.",
+  rule_bans_user_text_prompt: "The prompt is not allowed by the content policy.",
+  rule_bans_user_content: "The request is not allowed by the content policy.",
+  rule_bans_generated_content: "The result is not allowed by the content policy.",
+  generation_failed: "The request failed.",
+  unknown: "The request failed.",
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
 export function useDesktopGenerationFeed(options: {
+  /** "video" is accepted for old pages; this app makes images only. */
   mediaType: "image" | "video";
 }) {
   const { mediaType } = options;
-  const mediaApiRef = useRef(new MediaFilesApi());
+  const library = usePublikLibrary();
 
   const [inProgress, setInProgress] = useState<InProgressJob[]>([]);
   const [failed, setFailed] = useState<FailedJob[]>([]);
-  const [newlyCompleted, setNewlyCompleted] = useState<GalleryItem[]>([]);
+  const [justCompleted, setJustCompleted] = useState<GalleryItem[]>([]);
 
-  // Snapshot per-task durations so the fake progress stays stable.
+  // Snapshot per-task durations so the progress bar stays stable.
   const durationsRef = useRef<Map<string, number>>(new Map());
   const prevCompletedIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef(false);
-  // Locally dismissed failed tasks — hides them until the server-side
-  // dismissal lands in the next poll.
+  // Failed tasks dismissed here. Hidden until the dismissal shows in a poll.
   const dismissedRef = useRef<Set<string>>(new Set());
+
+  const refreshLibrary = library.refresh;
+
+  /** Prepend completed items (no duplicates) ahead of the library refresh. */
+  const addCompletedItems = useCallback((items: GalleryItem[]) => {
+    if (items.length === 0) return;
+    setJustCompleted((prev) => {
+      const existingIds = new Set(prev.map((i) => i.id));
+      const fresh = items.filter((i) => !existingIds.has(i.id));
+      if (fresh.length === 0) return prev;
+      return [...fresh, ...prev];
+    });
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const { tasks } = await GetTaskQueue();
       const filtered = tasks.filter(
-        (t) => getTaskMediaType(t) === mediaType && !dismissedRef.current.has(t.id),
+        (t) =>
+          getTaskMediaType(t) === mediaType && !dismissedRef.current.has(t.id),
       );
 
       const newInProgress = filtered
@@ -103,200 +106,89 @@ export function useDesktopGenerationFeed(options: {
       const completedTasks = filtered.filter(
         (t) => String(t.task_status) === "complete_success",
       );
-      const completedIdSet = new Set(completedTasks.map((t) => t.id));
 
-      // Detect newly completed (skip on first load to avoid flooding —
-      // history comes from the gallery API instead).
-      let expandedNewItems: GalleryItem[] = [];
+      // A task finished since the last poll: show its file now and load the
+      // library, which has every image of the batch. Skip the first load: the
+      // history comes from the library.
       if (initialLoadDoneRef.current) {
         const newOnes = completedTasks.filter(
           (t) => !prevCompletedIdsRef.current.has(t.id),
         );
         if (newOnes.length > 0) {
-          // Await expansion so the pending row and its completed replacement
-          // commit in the same React render — no "remove then add" gap.
-          const expanded = await Promise.all(
-            newOnes.map((t) =>
-              taskToGalleryItems(t, mediaType, mediaApiRef.current),
-            ),
-          );
-          expandedNewItems = expanded.flat();
+          addCompletedItems(newOnes.flatMap((t) => taskToGalleryItems(t, mediaType)));
+          void refreshLibrary();
         }
       }
       initialLoadDoneRef.current = true;
-      prevCompletedIdsRef.current = completedIdSet;
+      prevCompletedIdsRef.current = new Set(completedTasks.map((t) => t.id));
 
-      // Prune duration snapshots for tasks no longer in progress.
+      // Drop duration snapshots for tasks no longer in progress.
       const activeIds = new Set(newInProgress.map((j) => j.id));
       for (const id of Array.from(durationsRef.current.keys())) {
         if (!activeIds.has(id)) durationsRef.current.delete(id);
       }
 
-      if (expandedNewItems.length > 0) {
-        setNewlyCompleted((prev) => {
-          const existingIds = new Set(prev.map((i) => i.id));
-          const fresh = expandedNewItems.filter((i) => !existingIds.has(i.id));
-          return [...fresh, ...prev];
-        });
-      }
       setInProgress(newInProgress);
       setFailed(newFailed);
     } catch {
-      // ignore — next poll retries
+      // The next poll tries again.
     }
-  }, [mediaType]);
+  }, [mediaType, addCompletedItems, refreshLibrary]);
 
-  /** Prepend completed items (deduped) ahead of the next poll. */
-  const addCompletedItems = useCallback((items: GalleryItem[]) => {
-    if (items.length === 0) return;
-    setNewlyCompleted((prev) => {
-      const existingIds = new Set(prev.map((i) => i.id));
-      const fresh = items.filter((i) => !existingIds.has(i.id));
-      if (fresh.length === 0) return prev;
-      return [...fresh, ...prev];
-    });
-  }, []);
-
-  // Push-style completion: the Rust backend emits typed completion events
-  // carrying the generated media inline, so results appear instantly instead
-  // of waiting on the next task-queue poll. The follow-up load() reconciles
-  // the pending chip; the poll's own newly-completed detection dedupes by
-  // media token against these. NB: the tauri-events hooks subscribe once on
-  // mount, so the callbacks must only capture stable values (mediaType is a
-  // constant per page; addCompletedItems/load are stable).
+  // Rust sends the finished images in the event, so they show at once. The
+  // library store refreshes on the same event and fills in the prompt and the
+  // model. NB: the tauri-events hook subscribes once on mount, so the callback
+  // must only capture stable values.
   useTextToImageGenerationCompleteEvent(async (event) => {
     if (mediaType !== "image" || !event.generated_images?.length) return;
     const createdAt = new Date().toISOString();
+    const mediaTokens = event.generated_images.map((img) => img.media_token);
+    const imageUrls = event.generated_images.map((img) => img.cdn_url);
     addCompletedItems(
-      event.generated_images.map((img) => ({
-        id: img.media_token,
-        label: "Image Generation",
-        thumbnail:
-          getThumbnailUrl(img.maybe_thumbnail_template, {
-            width: THUMBNAIL_SIZES.LARGE,
-          }) ?? img.cdn_url,
-        fullImage: img.cdn_url,
-        createdAt,
-        mediaClass: "image",
-      })),
+      event.generated_images.map((img) => {
+        const taskId = taskIdFromToken(img.media_token);
+        return {
+          id: img.media_token,
+          label: "Image",
+          thumbnail: img.cdn_url,
+          fullImage: img.cdn_url,
+          createdAt,
+          mediaClass: "image",
+          // Set (even empty) so the feed shows it and does no prompt lookup.
+          prompt: "",
+          batchImageToken: taskId ? publikBatchToken(taskId) : undefined,
+          mediaTokens,
+          imageUrls,
+        } as GalleryItem;
+      }),
     );
-    load();
+    void load();
   });
 
-  useVideoGenerationCompleteEvent(async (event) => {
-    if (mediaType !== "video" || !event.generated_video) return;
-    const video = event.generated_video;
-    addCompletedItems([
-      {
-        id: video.media_token,
-        label: "Video Generation",
-        thumbnail:
-          getThumbnailUrl(video.maybe_thumbnail_template, {
-            width: THUMBNAIL_SIZES.LARGE,
-          }) ?? null,
-        fullImage: video.cdn_url,
-        createdAt: new Date().toISOString(),
-        mediaClass: "video",
-      },
-    ]);
-    load();
-  });
-
-  // Newly completed videos occasionally arrive without a thumbnail URL (the
-  // Rust media-file lookup fails open). The library copy would have it, but the
-  // newly completed item takes precedence in the feed, so look it up again
-  // until the URL shows up. GalleryThumbnail then re-checks the image itself.
-  const newlyCompletedRef = useRef(newlyCompleted);
-  newlyCompletedRef.current = newlyCompleted;
-  const missingThumbnailSinceRef = useRef<Map<string, number>>(new Map());
-
-  useEffect(() => {
-    if (mediaType !== "video") return;
-    let cancelled = false;
-    let running = false;
-
-    const lookUpMissingThumbnails = async () => {
-      if (running) return; // A slow round is still going.
-      running = true;
-      try {
-        await lookUpMissingThumbnailsOnce();
-      } finally {
-        running = false;
-      }
-    };
-
-    const lookUpMissingThumbnailsOnce = async () => {
-      const now = Date.now();
-      const missing = newlyCompletedRef.current.filter((item) => {
-        if (item.thumbnail) return false;
-        const since = missingThumbnailSinceRef.current.get(item.id) ?? now;
-        missingThumbnailSinceRef.current.set(item.id, since);
-        return now - since < MISSING_THUMBNAIL_GIVE_UP_MS;
-      });
-      for (const item of missing) {
-        const response = await mediaApiRef.current.GetMediaFileByToken({
-          mediaFileToken: item.id,
-        });
-        if (cancelled) return;
-        const links = response.success
-          ? (response.data?.media_links as VideoMediaLinks | undefined)
-          : undefined;
-        // Without a preview or template, getMediaThumbnail would fall back to
-        // the .mp4 itself, which an <img> can't show. Try again next round.
-        if (!links?.maybe_video_previews?.animated && !links?.maybe_thumbnail_template) {
-          continue;
-        }
-        const thumbnail = getMediaThumbnail(links, "video", {
-          size: THUMBNAIL_SIZES.LARGE,
-        });
-        const stillThumbnail = getMediaStillThumbnail(links, {
-          size: THUMBNAIL_SIZES.LARGE,
-        });
-        setNewlyCompleted((prev) =>
-          prev.map((i) =>
-            i.id === item.id ? { ...i, thumbnail, stillThumbnail } : i,
-          ),
-        );
-      }
-    };
-
-    const intervalId = setInterval(lookUpMissingThumbnails, MISSING_THUMBNAIL_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [mediaType]);
-
-  // Poll + reload on Tauri generation events and local "task-queue-update"
-  // dispatches (fired by the pages right after enqueueing).
+  // Poll, and reload on Rust events and local "task-queue-update" events
+  // (the pages send one right after they start a request).
   useEffect(() => {
     cleanupOldEntries();
-    load();
+    void load();
     const intervalId = setInterval(load, POLL_INTERVAL_MS);
 
-    const handleTaskUpdate = () => load();
+    const handleTaskUpdate = () => void load();
     window.addEventListener("task-queue-update", handleTaskUpdate);
 
     let cancelled = false;
-    const unlistenComplete: Promise<UnlistenFn> = listen(
-      "generation-complete-event",
-      () => {
-        if (!cancelled) load();
-      },
-    );
-    const unlistenFailed: Promise<UnlistenFn> = listen(
-      "generation-failed-event",
-      () => {
-        if (!cancelled) load();
-      },
-    );
+    const safeListen = (event: string): Promise<UnlistenFn | null> =>
+      listen(event, () => {
+        if (!cancelled) void load();
+      }).catch(() => null);
+    const unlistenComplete = safeListen("generation-complete-event");
+    const unlistenFailed = safeListen("generation-failed-event");
 
     return () => {
       cancelled = true;
       clearInterval(intervalId);
       window.removeEventListener("task-queue-update", handleTaskUpdate);
-      unlistenComplete.then((f) => f());
-      unlistenFailed.then((f) => f());
+      unlistenComplete.then((f) => f?.());
+      unlistenFailed.then((f) => f?.());
     };
   }, [load]);
 
@@ -306,47 +198,71 @@ export function useDesktopGenerationFeed(options: {
     try {
       await MarkTaskAsDismissed(taskId);
     } catch {
-      // ignore — the local filter already hides it
+      // The local filter hides it already.
     }
   }, []);
+
+  // The library: history for this page's kind, and the stored copy of each
+  // just-finished item (it has the prompt, the model and the whole batch).
+  const libraryById = useMemo(
+    () => new Map(library.items.map((item) => [item.id, item])),
+    [library.items],
+  );
+
+  // The library list is current: a local item missing from it was deleted.
+  const libraryIsCurrent =
+    !library.isInitialLoading && !library.isLoading && !library.error;
+
+  const newlyCompleted = useMemo(
+    () =>
+      justCompleted
+        .filter(
+          (item) =>
+            !libraryIsCurrent ||
+            libraryById.has(item.id) ||
+            !isLibraryToken(item.id),
+        )
+        .map((item) => {
+          const stored = libraryById.get(item.id);
+          return stored
+            ? ({ ...stored, createdAt: item.createdAt } as GalleryItem)
+            : item;
+        }),
+    [justCompleted, libraryById, libraryIsCurrent],
+  );
+
+  const history = useMemo<GalleryItem[]>(
+    () =>
+      mediaType === "image"
+        ? library.items.filter((item) => item.mediaClass === "image")
+        : [],
+    [library.items, mediaType],
+  );
 
   return {
     inProgress,
     failed,
     newlyCompleted,
+    /** Stored results of this page's kind, newest first. */
+    history,
+    /** True until the library loads the first time. */
+    isHistoryLoading: library.isInitialLoading,
+    /** The library failure, as one sentence, or null. */
+    historyError: library.error,
     dismissFailed,
     refresh: load,
   };
-}
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-// The media-file API's link fields used for video thumbnails. (The shared
-// MediaFile type predates these fields.)
-interface VideoMediaLinks {
-  cdn_url?: string | null;
-  maybe_thumbnail_template?: string | null;
-  maybe_video_previews?: {
-    animated?: string | null;
-    still?: string | null;
-    still_thumbnail_template?: string | null;
-  } | null;
 }
 
 // ── Task mapping helpers ────────────────────────────────────────────────────
 
 function getTaskMediaType(t: TaskQueueItem): "image" | "video" | "other" {
   const taskTypeStr = t.task_type ? String(t.task_type).toLowerCase() : "";
-  const modelTypeStr = t.model_type ? String(t.model_type).toLowerCase() : "";
-  const isSplat =
-    taskTypeStr.includes("gaussian") ||
-    modelTypeStr.includes("marble") ||
-    modelTypeStr.includes("worldlabs");
   const is3D =
     taskTypeStr.includes("3d") ||
     taskTypeStr.includes("object") ||
     taskTypeStr.includes("dimensional") ||
-    isSplat;
+    taskTypeStr.includes("gaussian");
   if (is3D) return "other";
   if (taskTypeStr.includes("video")) return "video";
   if (taskTypeStr.includes("image")) return "image";
@@ -355,12 +271,8 @@ function getTaskMediaType(t: TaskQueueItem): "image" | "video" | "other" {
 
 function getTaskModelLabel(t: TaskQueueItem): string {
   const modelType = t.model_type ? String(t.model_type) : "";
-  const modelDisplay = modelType ? findDesktopModel(modelType)?.fullName ?? getModelDisplayName(modelType) : undefined;
-  const provider = t.provider
-    ? getProviderDisplayName(String(t.provider).toLowerCase())
-    : undefined;
-  if (modelDisplay && provider) return `${modelDisplay} · ${provider}`;
-  return modelDisplay || provider || "Unknown model";
+  if (!modelType) return "Image";
+  return findDesktopModel(modelType)?.fullName ?? getModelDisplayName(modelType);
 }
 
 function taskToInProgress(
@@ -379,8 +291,7 @@ function taskToInProgress(
             m.tauriId === String(t.model_type) || m.id === String(t.model_type),
         )
       : undefined;
-    duration =
-      model?.progressBarTime ?? (mediaType === "video" ? 900000 : 30000);
+    duration = model?.progressBarTime ?? 30000;
     durations.set(t.id, duration);
   }
 
@@ -400,8 +311,7 @@ function taskToInProgress(
     progress,
     estimatedTimeLeftMs: Math.max(0, duration - elapsed),
     createdAt: t.created_at.toISOString(),
-    // One image task can produce a whole batch — surface the requested count
-    // so the pending chip reads "Generating N images".
+    // One request can make a batch: the pending row reads "Making N images".
     batchCount: meta?.batchCount,
     mediaClass: mediaType,
   };
@@ -439,78 +349,40 @@ function taskToFailed(
   };
 }
 
-/** Map a completed task to its GalleryItem(s), expanding batch siblings. */
-async function taskToGalleryItems(
+/** The file of a finished task. The library refresh adds the rest of the batch. */
+function taskToGalleryItems(
   t: TaskQueueItem,
   mediaType: "image" | "video",
-  mediaFilesApi: MediaFilesApi,
-): Promise<GalleryItem[]> {
+): GalleryItem[] {
   const file = t.completed_item?.primary_media_file;
-  if (!file) return [];
-
+  if (!file?.token || !file.cdn_url) return [];
   const meta = getMetaForTask(
     t.id,
     t.model_type ? String(t.model_type) : undefined,
     t.created_at.getTime(),
   );
-  const label =
-    meta?.prompt ||
-    (mediaType === "video" ? "Video Generation" : "Image Generation");
-  const modelId = t.model_type ? String(t.model_type) : undefined;
-  // Sort by task creation time (not completion time) so the completed row
-  // occupies the same slot the pending row held — no layout shift.
-  const createdAt = t.created_at.toISOString();
+  return [
+    {
+      id: file.token,
+      label: meta?.prompt || "Image",
+      thumbnail: file.cdn_url,
+      fullImage: file.cdn_url,
+      // Task creation time: the finished row takes the pending row's place.
+      createdAt: t.created_at.toISOString(),
+      mediaClass: mediaType,
+      modelId: t.model_type ? String(t.model_type) : undefined,
+      prompt: meta?.prompt ?? "",
+      batchImageToken: t.completed_item?.maybe_batch_token,
+    },
+  ];
+}
 
-  const primary: GalleryItem = {
-    id: file.token,
-    label,
-    thumbnail:
-      getThumbnailUrl(file.maybe_thumbnail_url_template, {
-        width: THUMBNAIL_SIZES.LARGE,
-      }) ?? null,
-    fullImage: file.cdn_url || null,
-    createdAt,
-    mediaClass: mediaType,
-    modelId,
-    batchImageToken: t.completed_item?.maybe_batch_token,
-  };
+/** Local tokens are `publik_<task>_<n>`. Returns `<task>`, or null. */
+function taskIdFromToken(token: string): string | null {
+  const match = /^publik_(.+)_\d+$/.exec(token);
+  return match ? match[1] : null;
+}
 
-  const batchToken = t.completed_item?.maybe_batch_token;
-  if (!batchToken) return [primary];
-
-  try {
-    const batchResponse = await mediaFilesApi.GetMediaFilesByBatchToken({
-      batchToken,
-    });
-    if (!batchResponse.success || !batchResponse.data?.length) {
-      return [primary];
-    }
-    return batchResponse.data
-      .map((batchFile: any): GalleryItem | null => {
-        const cdnUrl = batchFile.media_links?.cdn_url;
-        if (!cdnUrl) return null;
-        const thumbnail = getMediaThumbnail(batchFile.media_links, mediaType, {
-          size: THUMBNAIL_SIZES.LARGE,
-        });
-        return {
-          id: batchFile.token,
-          label,
-          thumbnail: thumbnail || cdnUrl,
-          stillThumbnail:
-            mediaType === "video"
-              ? getMediaStillThumbnail(batchFile.media_links, {
-                  size: THUMBNAIL_SIZES.LARGE,
-                })
-              : null,
-          fullImage: cdnUrl,
-          createdAt,
-          mediaClass: mediaType,
-          modelId,
-          batchImageToken: batchToken,
-        };
-      })
-      .filter((i): i is GalleryItem => i !== null);
-  } catch {
-    return [primary];
-  }
+function isLibraryToken(token: string): boolean {
+  return token.startsWith("publik_");
 }

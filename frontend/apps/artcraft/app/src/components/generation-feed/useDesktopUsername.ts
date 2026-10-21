@@ -1,27 +1,8 @@
-import { useEffect, useState } from "react";
-import { UsersApi } from "@storyteller/api";
+// There is no ArtCraft account: no session, no username. Kept only for the
+// unused video page (pages/PageVideo/ImageToVideo.tsx). Delete this file with
+// that page.
 
-// Resolve the current session's username (needed by the gallery list API).
-// Mirrors the gallery modal's session fetch; null while loading / logged out.
+/** @deprecated There is no sign-in. Always null. */
 export function useDesktopUsername(): string | null {
-  const [username, setUsername] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const session = await new UsersApi().GetSession();
-        if (!cancelled && session.success && session.data?.user) {
-          setUsername(session.data.user.username);
-        }
-      } catch {
-        // ignore — stays null and the page shows the empty state
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return username;
+  return null;
 }

@@ -98,7 +98,9 @@ export function GenerationListView({
   const mediaTokensNeedingPrompt = useMemo(
     () =>
       mergedEntries.flatMap((entry) =>
-        entry.kind === "gallery" && !entry.item.promptToken
+        entry.kind === "gallery" &&
+        !entry.item.promptToken &&
+        entry.item.prompt === undefined
           ? [entry.item.id]
           : [],
       ),
@@ -110,7 +112,9 @@ export function GenerationListView({
   // lookup has finished. `resolved` lets rows show a skeleton while loading and
   // fall back to the label once we know there's no prompt.
   const promptStateFor = useCallback(
-    (item: { id: string; promptToken?: string }) => {
+    (item: { id: string; promptToken?: string; prompt?: string }) => {
+      // Local items carry their prompt: nothing to look up.
+      if (item.prompt !== undefined) return { promptToken: "", resolved: true };
       const direct = item.promptToken;
       const resolved = direct != null || resolvedPromptTokens.has(item.id);
       const promptToken = direct || resolvedPromptTokens.get(item.id) || "";
@@ -194,16 +198,24 @@ export function GenerationListView({
           }
           const { promptToken, resolved } = promptStateFor(entry.item);
           const prompt = promptToken ? promptsMap.get(promptToken) : undefined;
+          const localPrompt = entry.item.prompt;
           // Loading while the media→prompt lookup is pending, or it found a
           // prompt token whose text hasn't arrived yet.
           const loading = !resolved || (!!promptToken && !prompt);
-          const modelId = prompt?.maybe_model_type || undefined;
+          const modelId =
+            localPrompt !== undefined
+              ? entry.item.modelId
+              : prompt?.maybe_model_type || undefined;
+          const title =
+            localPrompt !== undefined
+              ? localPrompt.trim() || undefined
+              : prompt?.maybe_positive_prompt?.trim() || undefined;
           return (
             <GalleryRow
               key={entry.key}
               item={entry.item}
               onClick={onGalleryItemClick}
-              title={prompt?.maybe_positive_prompt?.trim() || undefined}
+              title={title}
               modelId={modelId}
               loading={loading}
               actionsSlot={renderGalleryActions?.(entry.item, {
