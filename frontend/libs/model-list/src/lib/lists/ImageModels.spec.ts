@@ -26,11 +26,7 @@ describe("image models (publik API only)", () => {
     expect(model.usesInpaintingMask).toBe(false);
     expect(model.supportsQuality()).toBe(false);
     expect(model.supportsNewResolution()).toBe(false);
-    expect(model.aspectRatios).toEqual([
-      CommonAspectRatio.Square,
-      CommonAspectRatio.WideThreeByTwo,
-      CommonAspectRatio.TallTwoByThree,
-    ]);
+    expect(model.aspectRatios).toEqual([CommonAspectRatio.Square]);
     expect(model.defaultAspectRatio).toBe(CommonAspectRatio.Square);
     expect(model.defaultGenerationCount).toBe(1);
     expect(model.maxGenerationCount).toBe(4);
