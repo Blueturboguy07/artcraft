@@ -42,7 +42,35 @@ impl PublikAiState {
   pub fn new(app: AppInfo) -> Self {
     let settings = AiSettings::load(app.settings_path().as_deref());
     let maybe_credential = credential::read(app.slug);
-    Self { app, inner: Arc::new(Mutex::new(PublikAiInner { settings, maybe_credential, maybe_notice: None, last_charge: String::new() })) }
+    let state = Self { app, inner: Arc::new(Mutex::new(PublikAiInner { settings, maybe_credential, maybe_notice: None, last_charge: String::new() })) };
+    state.refresh_wallet();
+    state
+  }
+
+  /// Reads today's balance and claim state once, off this thread, when the provider is publik
+  /// API. The credential file keeps the numbers from the last call, so without this a linked
+  /// computer said "$0.00 · link this computer…" until its first request of the session.
+  fn refresh_wallet(&self) {
+    let provider = self.provider();
+    if !provider.is_publik() || self.lock().maybe_credential.is_none() {
+      return;
+    }
+    let inner = Arc::clone(&self.inner);
+    let slug = self.app.slug;
+    std::thread::spawn(move || {
+      let Ok(wallet) = craft_publik::client::wallet(&provider) else { return };
+      let mut inner = inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+      let Some(credential) = inner.maybe_credential.as_mut() else { return };
+      if let Some(balance) = wallet["balance_micros"].as_i64() {
+        credential.balance_micros = Some(balance);
+      }
+      if let Some(claim_state) = wallet["claim_state"].as_str() {
+        credential.claim_state = claim_state.to_string();
+      }
+      if let Err(err) = credential::write(slug, credential) {
+        warn!("Could not keep the publik balance: {}", err);
+      }
+    });
   }
 
   /// The provider in force, by the crate's resolution order. Reads files, never the network.

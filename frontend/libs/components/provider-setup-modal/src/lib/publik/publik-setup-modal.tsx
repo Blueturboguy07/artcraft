@@ -7,6 +7,8 @@ import { usePublikStore } from "./publik-store";
 
 /** The first launch asks a moment after the window is up, as the egui apps do. */
 const FIRST_RUN_DELAY_MS = 1500;
+/** Rust reads today's balance off the main thread at start; one more look picks it up. */
+const WALLET_SETTLE_DELAY_MS = 4000;
 
 export interface PublikSetupModalProps {
   /** Another dialog is on screen. The card waits for it to close. Off by default. */
@@ -38,7 +40,11 @@ export function PublikSetupModal({ blocked = false }: PublikSetupModalProps) {
         openSetup("pick");
       }
     }, FIRST_RUN_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    const settle = window.setTimeout(() => refresh(), WALLET_SETTLE_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(settle);
+    };
   }, [blocked, refresh, openSetup]);
 
   useEffect(() => {
