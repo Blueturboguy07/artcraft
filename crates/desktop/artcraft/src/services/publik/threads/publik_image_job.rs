@@ -193,16 +193,28 @@ fn call_image_line(provider: &Provider, model: PublikImageModel, prompt: &str, s
   }
 }
 
-/// The gateway takes a PNG file. Canvas bytes become a temporary PNG; local files are PNGs already.
+/// The longest side of the image sent to the edit line. publik API draws 1024x1024, and the
+/// gateway takes a request of a few megabytes at most, so a larger source is scaled down first.
+const EDIT_SOURCE_LONG_EDGE: u32 = 1024;
+
+/// The gateway takes a PNG file of at most [`EDIT_SOURCE_LONG_EDGE`] pixels on its long side.
+/// A local PNG within that size goes as it is; canvas bytes and larger files become a temporary PNG.
 fn prepare_edit_source(source: &PublikEditSource, root: &AppDataRoot, task_id: &TaskId) -> AnyhowResult<SourceFile> {
-  match source {
-    PublikEditSource::File(path) => Ok(SourceFile { path: path.clone(), temporary: false }),
-    PublikEditSource::Bytes(bytes) => {
-      let path = root.temp_dir().path().join(format!("publik_edit_{}.png", task_id.as_str()));
-      image::load_from_memory(bytes)?.save_with_format(&path, ImageFormat::Png)?;
-      Ok(SourceFile { path, temporary: true })
+  let fits = |image: &image::DynamicImage| image.width() <= EDIT_SOURCE_LONG_EDGE && image.height() <= EDIT_SOURCE_LONG_EDGE;
+  let image = match source {
+    PublikEditSource::File(path) => {
+      let image = image::open(path)?;
+      if fits(&image) && image::ImageReader::open(path)?.with_guessed_format()?.format() == Some(ImageFormat::Png) {
+        return Ok(SourceFile { path: path.clone(), temporary: false });
+      }
+      image
     },
-  }
+    PublikEditSource::Bytes(bytes) => image::load_from_memory(bytes)?,
+  };
+  let image = if fits(&image) { image } else { image.thumbnail(EDIT_SOURCE_LONG_EDGE, EDIT_SOURCE_LONG_EDGE) };
+  let path = root.temp_dir().path().join(format!("publik_edit_{}.png", task_id.as_str()));
+  image.save_with_format(&path, ImageFormat::Png)?;
+  Ok(SourceFile { path, temporary: true })
 }
 
 /// GPT Image 1 sends PNG; Nano Banana may send JPEG. Every result is kept as a PNG.
