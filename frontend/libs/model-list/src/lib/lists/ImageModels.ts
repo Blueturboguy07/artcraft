@@ -32,13 +32,10 @@ export const IMAGE_MODELS: ImageModel[] = [
     editingIsInpainting: false,
     progressBarTime: 60000,
     maxPromptLength: 32000,
-    canChangeAspectRatio: true,
+    // Square only: publik API draws GPT Image 1 at 1024x1024, so a wider pick would be a trap.
+    canChangeAspectRatio: false,
     defaultAspectRatio: CommonAspectRatio.Square,
-    aspectRatios: [
-      CommonAspectRatio.Square,
-      CommonAspectRatio.WideThreeByTwo,
-      CommonAspectRatio.TallTwoByThree,
-    ],
+    aspectRatios: [CommonAspectRatio.Square],
   }),
   new ImageModel({
     id: "nano_banana",

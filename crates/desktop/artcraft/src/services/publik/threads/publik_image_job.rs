@@ -128,7 +128,8 @@ async fn make_images(app: &AppHandle, job: &PublikImageJob) -> Result<Vec<SavedI
   let provider = publik.provider();
   let model = job.model;
   let prompt = job.prompt.clone();
-  let size = job.size.as_size();
+  // publik API draws GPT Image 1 at 1024x1024 only; a person's own key has all three sizes.
+  let size = if provider.is_publik() { PublikImageSize::Square.as_size() } else { job.size.as_size() };
   let count = job.count;
   let task_id = job.task_id.as_str().to_string();
   let source_path = maybe_source.as_ref().map(|source| source.path.clone());
