@@ -1,0 +1,92 @@
+name: "publik build"
+
+# Builds publik's ArtCraft for macOS (universal, unsigned) and keeps the .app as a workflow
+# artifact. It makes no release and no tag. publik signs, notarizes and staples the app on its
+# own Mac, then makes the release by hand.
+
+on:
+  push:
+    branches:
+      - 'telemetry/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publik-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS universal (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      CARGO_INCREMENTAL: "0"
+      # The sqlx query macros read the checked-in .sqlx cache.
+      SQLX_OFFLINE: "true"
+      VITE_ENVIRONMENT_TYPE: production
+    steps:
+      - name: check out ArtCraft
+        uses: actions/checkout@v4
+        with:
+          path: artcraft
+
+      # crates/desktop/artcraft/Cargo.toml reads craft-publik from a sibling folder.
+      - name: check out craft-publik (path dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: Blueturboguy07/craft-publik
+          ref: 854bdf66e4d97cb19546fdb0ed0e258a20510f0d
+          path: craft-publik
+
+      # The same Xcode, Rust and Node lines as the earlier publik builds.
+      - name: select Xcode 26.2
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.2.app
+          xcodebuild -version
+
+      - name: set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: set up Rust 1.97.1 (arm64 and x86_64)
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --target aarch64-apple-darwin --target x86_64-apple-darwin
+          rustup default 1.97.1
+          rustc --version
+          cargo --version
+
+      - name: build the frontend
+        working-directory: artcraft/frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          npm ci
+          npx nx run artcraft:build
+          ls apps/artcraft/dist | head -10
+
+      - name: build ArtCraft.app (Tauri, app only, unsigned)
+        working-directory: artcraft/crates/desktop/artcraft
+        run: |
+          npx --yes @tauri-apps/cli@2.12.2 build --target universal-apple-darwin --bundles app --config '{"build":{"beforeBuildCommand":""}}' -- --locked
+
+      - name: pack the app
+        run: |
+          APP=artcraft/target/universal-apple-darwin/release/bundle/macos/ArtCraft.app
+          /usr/libexec/PlistBuddy -c 'Print' "$APP/Contents/Info.plist"
+          lipo -archs "$APP/Contents/MacOS/artcraft"
+          git -C artcraft status --short
+          ditto -c -k --keepParent "$APP" ArtCraft-macos-universal-unsigned.zip
+          shasum -a 256 ArtCraft-macos-universal-unsigned.zip
+
+      - name: upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArtCraft-macos-universal-unsigned
+          path: ArtCraft-macos-universal-unsigned.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
