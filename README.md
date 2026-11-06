@@ -138,6 +138,15 @@ Additional provider integrations are planned for Kling, Google, Runway, and Luma
 - [Roadmap](./ROADMAP.md)
 - [License](#license)
 
+## Usage counts
+
+publik's build of ArtCraft sends two usage events to publik: `app_opened` at each launch and
+`active_session` every 30 minutes while the app runs. An event holds the app name, the app version,
+the operating system, the CPU type and a random install ID. When this computer is set up for
+publik API, the event also carries its publik key, so publik counts the account once. No prompt,
+image, file name or other content is sent. To turn it off, set `DO_NOT_TRACK=1` in the environment.
+Details: https://publikhq.com/skills/telemetry.md
+
 ## License
 
 ArtCraft is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.

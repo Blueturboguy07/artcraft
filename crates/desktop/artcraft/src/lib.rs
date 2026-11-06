@@ -75,8 +75,10 @@ use crate::services::publik::commands::publik_set_own_key_command::publik_set_ow
 use crate::services::publik::commands::publik_speech_command::publik_speech_command;
 use crate::services::publik::commands::publik_transcribe_command::publik_transcribe_command;
 use crate::services::publik::state::publik_ai_state::PublikAiState;
-use crate::services::publik::state::publik_app_info::publik_app_info;
+use crate::services::publik::state::publik_app_info::{publik_app_info, PUBLIK_APP_SLUG};
 use crate::services::publik::state::publik_local_store::PublikLocalStore;
+use crate::services::publik::utils::publik_telemetry;
+use crate::version::ARTCRAFT_VERSION;
 
 /// Every AI request goes through publik API (the person's publik balance) or the person's own
 /// key, through `craft-publik`. There is no ArtCraft account and no other cloud provider: the
@@ -116,6 +118,11 @@ pub fn run() {
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_upload::init())
     .setup(move |app| {
+      // publik usage counts: `app_opened` now and `active_session` every 30 minutes, from a
+      // background thread. No content is sent; `DO_NOT_TRACK=1` turns it off. The key is this
+      // computer's publik key from publik's credential file, or nothing when there is none.
+      publik_telemetry::start(PUBLIK_APP_SLUG, ARTCRAFT_VERSION, Some(Box::new(|| craft_publik::credential::read(PUBLIK_APP_SLUG).map(|credential| credential.key))));
+
       let app = app.handle().clone();
       let handle = app.clone();
       let root = app_data_root_2.clone();
