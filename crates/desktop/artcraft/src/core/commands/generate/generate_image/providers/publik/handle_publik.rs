@@ -172,7 +172,7 @@ mod tests {
   }
 
   fn app(dir: &std::path::Path) -> craft_publik::AppInfo {
-    craft_publik::AppInfo { slug: TEST_SLUG, name: "ArtCraft", version: "0.0.0", app_token: "", dialects: &["images"], config_dir: Some(dir.to_path_buf()) }
+    craft_publik::AppInfo { slug: TEST_SLUG, name: "ArtCraft", version: "0.0.0", app_token: "", uses_ai: true, endpoints: craft_publik::Endpoints::DEFAULT, dialects: &["images"], config_dir: Some(dir.to_path_buf()) }
   }
 
   fn request(value: serde_json::Value) -> TauriGenerateImageRequest {

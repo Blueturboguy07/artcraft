@@ -2,10 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { CommandSuccessStatus } from "../common/CommandStatus";
 
 // publik API (publikhq.com): ArtCraft's AI step for GPT Image 1 and "Improve prompt". The
-// Rust side owns the provider choice, the credential and every network call; these commands
-// never return a key.
+// Rust side owns Sign in with publik (the gate window before the main window), the provider
+// choice, the credential and every network call; these commands never return a key.
 
 export type PublikProviderKind = "publik" | "own" | "not_set_up";
+
+/** The answer to the gate's plan screen: Connect your plan, Use my own key, or not answered. */
+export type PublikChoice = "publik" | "own_key";
 
 export interface PublikLink {
   label: string;
@@ -28,6 +31,7 @@ export interface PublikTexts {
 
 export interface PublikStatus {
   provider: PublikProviderKind;
+  maybe_choice?: PublikChoice | null;
   status_line: string;
   balance_line: string;
   cost_sentence: string;
@@ -76,7 +80,7 @@ const run = async <T>(
 export const PublikGetStatus = () =>
   run<PublikStatus>("publik_get_status_command");
 
-/** "Continue" after the disclosure: provisions this computer. No key to paste. */
+/** "Continue" after the disclosure: connects the person's publik plan. No key to paste. */
 export const PublikLinkComputer = () =>
   run<PublikStatus>("publik_link_computer_command");
 
@@ -94,6 +98,7 @@ export const PublikSetOwnKey = (
     },
   });
 
+/** "Sign out of publik on this computer" (the gate opens again) or "Remove key". */
 export const PublikForgetKey = () =>
   run<PublikStatus>("publik_forget_key_command");
 

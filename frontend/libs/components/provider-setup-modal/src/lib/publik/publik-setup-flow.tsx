@@ -14,8 +14,9 @@ import {
 } from "@storyteller/tauri-api";
 import { usePublikStore, type PublikSetupEntry } from "./publik-store";
 
-// The two choices of craft-publik's setup flow, in ArtCraft's own UI: publik API (link this
-// computer; no key to paste) or the person's own key. Copy follows the crate's egui flow.
+// The two choices of craft-publik's setup flow, in ArtCraft's own UI: publik API (connect the
+// person's publik plan; no key to paste) or the person's own key. Copy follows the crate's egui
+// flow. The sign-in itself happened in the gate window before the app opened.
 
 type Step = "pick" | "disclosure" | "linking" | "card" | "own_key";
 
@@ -144,11 +145,11 @@ function PickStep({
       <ChoiceCard
         title="publik API"
         inUse={status.provider === "publik"}
-        body="No key to paste. You pay per use, in dollars, from a publik balance. Link this computer once to get $0.05 of free use."
+        body="No key to paste. You pay per use, in dollars, from your publik plan or balance."
       >
         {status.can_provision ? (
           <Button className="h-9 px-3" onClick={onPublik}>
-            Use publik API
+            Connect your plan
           </Button>
         ) : (
           <p className="text-sm text-base-fg/50">

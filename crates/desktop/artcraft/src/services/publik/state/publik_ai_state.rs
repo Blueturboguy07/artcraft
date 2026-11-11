@@ -1,9 +1,9 @@
 //! The publik step's state, shared by the Tauri commands and the image job.
 //!
-//! It holds the person's choice (`ai.json` in ArtCraft's settings directory, mode 0600) and
-//! this computer's publik credential (publik's own file, written by `craft-publik`). It is the
-//! host-side twin of `craft_publik::ui::AiState`, without egui. Nothing here logs or returns a
-//! key.
+//! It holds the person's own key (`ai.json` in ArtCraft's settings directory, mode 0600) and
+//! this computer's publik credential (publik's own file, written by `craft-publik`; it also
+//! carries the answer to the gate's plan screen, `choice`). It is the host-side twin of
+//! `craft_publik::ui::AiState`, without egui. Nothing here logs or returns a key.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -11,7 +11,7 @@ use craft_publik::client::{Fail, Reply};
 use craft_publik::credential::{self, Credential};
 use craft_publik::own_key::{self, Service};
 use craft_publik::settings::{AiSettings, PROVIDER_OWN, PROVIDER_PUBLIK};
-use craft_publik::{AppInfo, Line, Provider, DASHBOARD_URL, DISCLOSURE_VERSION, WHY_IT_COSTS};
+use craft_publik::{AppInfo, Choice, Line, Provider, DASHBOARD_URL, DISCLOSURE_VERSION, WHY_IT_COSTS};
 use log::warn;
 
 use crate::services::publik::state::publik_status::{PublikLink, PublikNotice, PublikStatus, PublikTexts};
@@ -93,15 +93,25 @@ impl PublikAiState {
       _ => (None, None, None),
     };
 
-    PublikStatus { provider: provider_kind(&provider), status_line: status_line(&provider, maybe_credential), balance_line: maybe_credential.map(|c| craft_publik::balance_line(c.balance_micros.or(Some(0)), &c.claim_state)).unwrap_or_default(), cost_sentence: maybe_credential.map(|c| c.cost_sentence.trim()).filter(|s| !s.is_empty()).unwrap_or(WHY_IT_COSTS).to_string(), claimed, maybe_account_link: maybe_credential.and_then(|c| account_link(c, claimed)), dashboard_url: DASHBOARD_URL, can_provision: self.app.can_provision(), wants_first_run: !inner.settings.setup_done && !provider.is_set_up(), owes_first_card: provider.is_publik() && inner.maybe_credential.is_some() && !inner.settings.first_card_shown, supports_images: provider.supports(Line::Images), maybe_own_key_service, maybe_own_key_model, maybe_own_key_base_url, last_charge: inner.last_charge.clone(), maybe_notice: inner.maybe_notice.clone(), texts: PublikTexts::from_crate() }
+    let maybe_choice = craft_publik::choice(&self.app, &inner.settings).map(Choice::as_str);
+    // Set up from this flow (not from the gate) and never shown its first-run card.
+    let owes_first_card = inner.settings.provider == PROVIDER_PUBLIK && provider.is_publik() && inner.maybe_credential.is_some() && !inner.settings.first_card_shown;
+
+    PublikStatus { provider: provider_kind(&provider), maybe_choice, status_line: status_line(&provider, maybe_credential), balance_line: maybe_credential.map(|c| craft_publik::balance_line(c.balance_micros.or(Some(0)), &c.claim_state)).unwrap_or_default(), cost_sentence: maybe_credential.map(|c| c.cost_sentence.trim()).filter(|s| !s.is_empty()).unwrap_or(WHY_IT_COSTS).to_string(), claimed, maybe_account_link: maybe_credential.and_then(|c| account_link(c, claimed)), dashboard_url: DASHBOARD_URL, can_provision: self.app.can_provision(), wants_first_run: !inner.settings.setup_done && !provider.is_set_up(), owes_first_card, supports_images: provider.supports(Line::Images), maybe_own_key_service, maybe_own_key_model, maybe_own_key_base_url, last_charge: inner.last_charge.clone(), maybe_notice: inner.maybe_notice.clone(), texts: PublikTexts::from_crate() }
   }
 
-  /// Provision this computer for publik API. The person accepted the disclosure first.
-  /// Blocking (the system `curl`): call it from a blocking thread.
+  /// "Connect your plan": publik API pays from the person's publik plan or balance. The person
+  /// accepted the disclosure first. The gate provisioned this computer at start-up; when the
+  /// credential is gone, this provisions again. Blocking (the system `curl`): call it from a
+  /// blocking thread.
   pub fn link_computer(&self) -> Result<(), String> {
-    let credential = craft_publik::provision::provision(&self.app)?;
+    let credential = match credential::read(self.app.slug) {
+      Some(credential) => credential,
+      None => craft_publik::provision::provision(&self.app)?,
+    };
+    craft_publik::set_choice(&self.app, Some(Choice::Publik));
     let mut inner = self.lock();
-    inner.maybe_credential = Some(credential);
+    inner.maybe_credential = credential::read(self.app.slug).or(Some(credential));
     inner.settings.provider = PROVIDER_PUBLIK.into();
     inner.settings.disclosure_accepted = DISCLOSURE_VERSION;
     inner.settings.setup_done = true;
@@ -124,6 +134,7 @@ impl PublikAiState {
       "" => own_key::pick_model(service, &model_ids),
       chosen => chosen.to_string(),
     };
+    craft_publik::set_choice(&self.app, Some(Choice::OwnKey));
     let mut inner = self.lock();
     inner.settings.provider = PROVIDER_OWN.into();
     inner.settings.own_key = key.to_string();
@@ -131,11 +142,14 @@ impl PublikAiState {
     inner.settings.own_model = model.clone();
     inner.settings.setup_done = true;
     inner.maybe_notice = None;
+    inner.maybe_credential = credential::read(self.app.slug);
     self.save(&inner)?;
     Ok(OwnKeyCheck { model_count: model_ids.len(), model })
   }
 
-  /// "Forget this computer's key" (publik API) or "Remove key" (own key).
+  /// "Sign out of publik on this computer" (publik API: the credential goes, and the gate asks
+  /// for a sign-in again) or "Remove key" (own key: the gate asks how to pay for AI again at
+  /// the next start).
   pub fn forget(&self) -> Result<(), String> {
     let provider = self.provider();
     let mut inner = self.lock();
@@ -149,6 +163,7 @@ impl PublikAiState {
       Provider::Own { .. } => {
         inner.settings.own_key = String::new();
         inner.settings.provider = String::new();
+        craft_publik::set_choice(&self.app, None);
       },
       Provider::NotSetUp => {},
     }
@@ -262,6 +277,7 @@ mod tests {
     let state = PublikAiState::new(app(dir.path()));
     let status = state.status();
     assert_eq!(status.provider, "not_set_up");
+    assert_eq!(status.maybe_choice, None);
     assert!(status.wants_first_run);
     assert!(!status.owes_first_card);
     assert!(!status.supports_images);
@@ -281,6 +297,7 @@ mod tests {
     let state = PublikAiState::new(app(dir.path()));
     let status = state.status();
     assert_eq!(status.provider, "own");
+    assert_eq!(status.maybe_choice, Some("own_key"));
     assert_eq!(status.maybe_own_key_service.as_deref(), Some("OpenAI"));
     assert!(status.supports_images);
     let json = serde_json::to_string(&status).unwrap();
@@ -313,6 +330,6 @@ mod tests {
   }
 
   fn app(dir: &Path) -> AppInfo {
-    AppInfo { slug: TEST_SLUG, name: "ArtCraft", version: "0.0.0", app_token: "", dialects: &["images"], config_dir: Some(dir.to_path_buf()) }
+    AppInfo { slug: TEST_SLUG, name: "ArtCraft", version: "0.0.0", app_token: "", uses_ai: true, endpoints: craft_publik::Endpoints::DEFAULT, dialects: &["images"], config_dir: Some(dir.to_path_buf()) }
   }
 }

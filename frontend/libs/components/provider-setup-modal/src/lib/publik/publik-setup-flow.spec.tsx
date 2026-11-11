@@ -77,7 +77,7 @@ afterEach(() => {
 it("offers publik API and the own key, and Later closes the card for good", async () => {
   const onClose = vi.fn();
   render(<PublikSetupFlow onClose={onClose} />);
-  expect(screen.getByRole("button", { name: "Use publik API" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Connect your plan" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Use my own key" })).toBeTruthy();
 
   await act(async () => {
@@ -89,7 +89,7 @@ it("offers publik API and the own key, and Later closes the card for good", asyn
 
 it("links this computer only after the disclosure, then shows the balance and one link", async () => {
   render(<PublikSetupFlow onClose={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "Use publik API" }));
+  fireEvent.click(screen.getByRole("button", { name: "Connect your plan" }));
   expect(screen.getByText(TEXTS.disclosure)).toBeTruthy();
   expect(mocks.invoke).not.toHaveBeenCalledWith("publik_link_computer_command", undefined);
 

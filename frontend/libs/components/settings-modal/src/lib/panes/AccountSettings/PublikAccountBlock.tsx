@@ -99,7 +99,7 @@ export const PublikAccountBlock = () => {
             </Button>
           )}
           <Button variant="destructive" className="h-8 px-3 text-xs" onClick={forget}>
-            {isPublik ? "Forget this computer's key" : "Remove key"}
+            {isPublik ? "Sign out of publik on this computer" : "Remove key"}
           </Button>
         </div>
       )}

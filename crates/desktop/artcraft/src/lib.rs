@@ -74,16 +74,19 @@ use crate::services::publik::commands::publik_mark_first_card_shown_command::pub
 use crate::services::publik::commands::publik_set_own_key_command::publik_set_own_key_command;
 use crate::services::publik::commands::publik_speech_command::publik_speech_command;
 use crate::services::publik::commands::publik_transcribe_command::publik_transcribe_command;
+use crate::services::publik::gate::publik_gate_window::{handle_gate_request, run_gate, PublikGate, GATE_SCHEME};
 use crate::services::publik::state::publik_ai_state::PublikAiState;
-use crate::services::publik::state::publik_app_info::{publik_app_info, PUBLIK_APP_SLUG};
+use crate::services::publik::state::publik_app_info::publik_app_info;
 use crate::services::publik::state::publik_local_store::PublikLocalStore;
-use crate::services::publik::utils::publik_telemetry;
-use crate::version::ARTCRAFT_VERSION;
 
-/// Every AI request goes through publik API (the person's publik balance) or the person's own
-/// key, through `craft-publik`. There is no ArtCraft account and no other cloud provider: the
-/// commands that needed one keep their names and answer "<Feature> is not available in this
-/// build." (see `core::commands::unavailable`).
+/// Every AI request goes through publik API (the person's publik plan or balance) or the
+/// person's own key, through `craft-publik`. There is no ArtCraft account and no other cloud
+/// provider: the commands that needed one keep their names and answer "<Feature> is not
+/// available in this build." (see `core::commands::unavailable`).
+///
+/// The app opens with Sign in with publik (`services::publik::gate`): the main window is
+/// created only once the gate passed. Usage counting (`app_opened`, then `active_session`
+/// every 30 minutes, with this computer's publik key) starts with it, from `craft-publik`.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   // NB: Tauri wants to install the logger itself, so we can't rely on the logger crate
@@ -110,6 +113,10 @@ pub fn run() {
   // Everything publik makes or receives stays in `~/Artcraft/publik`.
   let publik_local_store = PublikLocalStore::new(app_data_root.path());
 
+  // Sign in with publik: the gate window's page comes from this protocol.
+  let publik_gate = PublikGate::default();
+  let gate_for_protocol = publik_gate.clone();
+
   println!("Initializing backend runtime...");
 
   let builder = tauri::Builder::default()
@@ -117,27 +124,27 @@ pub fn run() {
     .plugin(tauri_plugin_http::init())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_upload::init())
+    .register_uri_scheme_protocol(GATE_SCHEME, move |_context, request| handle_gate_request(&gate_for_protocol, &request))
     .setup(move |app| {
-      // publik usage counts: `app_opened` now and `active_session` every 30 minutes, from a
-      // background thread. No content is sent; `DO_NOT_TRACK=1` turns it off. The key is this
-      // computer's publik key from publik's credential file, or nothing when there is none.
-      publik_telemetry::start(PUBLIK_APP_SLUG, ARTCRAFT_VERSION, Some(Box::new(|| craft_publik::credential::read(PUBLIK_APP_SLUG).map(|credential| credential.key))));
-
       let app = app.handle().clone();
-      let handle = app.clone();
       let root = app_data_root_2.clone();
 
-      tauri::async_runtime::block_on(async move {
-        if let Err(err) = setup_main_window(&app).await {
-          error!("Failed to set up the main window: {:?}", err);
-        }
+      // Sign in with publik first. The main window and the start-up tasks follow once the
+      // person is signed in (and, the first time, has chosen how the app pays for AI).
+      run_gate(&app, move |app| {
+        let app = app.clone();
+        tauri::async_runtime::block_on(async move {
+          if let Err(err) = setup_main_window(&app).await {
+            error!("Failed to set up the main window: {:?}", err);
+          }
 
-        let result = handle_tauri_startup(handle, root).await;
+          let result = handle_tauri_startup(app, root).await;
 
-        if let Err(err) = result {
-          error!("Failed to handle Tauri startup: {:?}", err);
-          panic!("Failed to handle Tauri startup: {:?}", err);
-        }
+          if let Err(err) = result {
+            error!("Failed to handle Tauri startup: {:?}", err);
+            panic!("Failed to handle Tauri startup: {:?}", err);
+          }
+        });
       });
 
       Ok(())
@@ -147,7 +154,8 @@ pub fn run() {
     .manage(artcraft_platform_info)
     .manage(provider_credential_cache)
     .manage(publik_ai_state)
-    .manage(publik_local_store);
+    .manage(publik_local_store)
+    .manage(publik_gate);
 
   // TODO: Break this out into another module, because RustRover/IntelliJ lags with these macros.
   //  My first attempt at naively doing this didn't work because the macros can't find their codegen'd targets.

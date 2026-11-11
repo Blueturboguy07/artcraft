@@ -32,8 +32,10 @@ memory_store.workspace = true
 sqlite_tasks.workspace = true
 tokens.workspace = true
 
-# publik API (publikhq.com): provisioning, the credential file, and the image, chat and audio calls.
-# Shared by publik's Craft apps; a sibling checkout at ../craft-publik (no egui feature here).
+# The publik module (publikhq.com/sdk/publik.rs.md): Sign in with publik (the gate), usage
+# counting, provisioning, the credential file, and the image, chat and audio calls. Shared by
+# publik's Craft apps; a sibling checkout at ../craft-publik, branch signin-gate (no egui feature
+# here; the gate draws in a Tauri window, see services/publik/gate).
 craft-publik = { path = "../../../../craft-publik" }
 
 # External
@@ -58,7 +60,6 @@ tauri.workspace = true
 tempdir.workspace = true
 tempfile.workspace = true
 tokio = { version = "1.42", features = ["rt", "rt-multi-thread", "fs"] }
-ureq = "2" # publik usage counts (src/services/publik/utils/publik_telemetry.rs)
 url.workspace = true
 
 # NB: We need to vendor this in so that we can access the cookies inside via the private API

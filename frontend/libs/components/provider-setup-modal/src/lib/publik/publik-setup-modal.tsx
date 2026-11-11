@@ -16,8 +16,10 @@ export interface PublikSetupModalProps {
 }
 
 /**
- * The publik setup card: the app's onboarding. It opens once on the first launch (closed for
- * good by "Later"), and whenever a page asks for it (for example Generate before AI is set up).
+ * The publik setup card. Sign in with publik and the plan question happened in the gate window
+ * before this one opened; this card finishes what the gate left (the own-key form after "Use
+ * my own key") and opens whenever a page asks for it (for example Generate before AI is set
+ * up). "Later" closes the first-run card for good.
  */
 export function PublikSetupModal({ blocked = false }: PublikSetupModalProps) {
   const isSetupOpen = usePublikStore((s) => s.isSetupOpen);
@@ -37,7 +39,8 @@ export function PublikSetupModal({ blocked = false }: PublikSetupModalProps) {
       if (status?.owes_first_card) {
         openSetup("card");
       } else if (status?.wants_first_run) {
-        openSetup("pick");
+        // After "Use my own key" at the gate, straight to the own-key form.
+        openSetup(status.maybe_choice === "own_key" ? "own_key" : "pick");
       }
     }, FIRST_RUN_DELAY_MS);
     const settle = window.setTimeout(() => refresh(), WALLET_SETTLE_DELAY_MS);

@@ -12,6 +12,10 @@ pub struct PublikStatus {
   /// `publik`, `own` or `not_set_up`.
   pub provider: &'static str,
 
+  /// The answer to the gate's plan screen: `publik` (Connect your plan), `own_key` (Use my own
+  /// key), or none (the gate asks at the next start).
+  pub maybe_choice: Option<&'static str>,
+
   /// "publik API · $0.05 of publik balance", "Your own key (OpenAI) · gpt-4.1-mini", or
   /// "AI is not set up".
   pub status_line: String,

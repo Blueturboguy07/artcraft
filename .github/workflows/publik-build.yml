@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Blueturboguy07/craft-publik
-          ref: 854bdf66e4d97cb19546fdb0ed0e258a20510f0d
+          ref: 082377e177a716ec4fa5dbe7b371ca5940f97be6
           path: craft-publik
 
       # The same Xcode, Rust and Node lines as the earlier publik builds.
