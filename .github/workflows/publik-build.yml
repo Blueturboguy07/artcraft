@@ -3,6 +3,8 @@ name: "publik build"
 # Builds publik's ArtCraft for macOS (universal, unsigned) and keeps the .app as a workflow
 # artifact. It makes no release and no tag. publik signs, notarizes and staples the app on its
 # own Mac, then makes the release by hand.
+# It holds no certificate. It reads one secret, PUBLIK_APP_TOKEN: the publik app token, which it
+# writes to artcraft/publik-app-token.txt (git ignores that file) for the build.
 
 on:
   push:
@@ -32,6 +34,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: artcraft
+
+      # The app bakes publik-app-token.txt in (include_str!); it sits next to the workspace Cargo.toml.
+      - name: Write the publik app token from the repository secret
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+        working-directory: artcraft
+        run: |
+          set -euo pipefail
+          if [ -z "${PUBLIK_APP_TOKEN}" ]; then echo "::error::the repository secret PUBLIK_APP_TOKEN is empty"; exit 1; fi
+          printf '%s' "${PUBLIK_APP_TOKEN}" > publik-app-token.txt
+          echo "publik-app-token.txt: $(wc -c < publik-app-token.txt | tr -d ' ') bytes"
 
       # crates/desktop/artcraft/Cargo.toml reads craft-publik from a sibling folder.
       - name: check out craft-publik (path dependency)

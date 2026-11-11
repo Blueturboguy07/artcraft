@@ -105,3 +105,5 @@ windows/sqlite/sqlite3.lib
 crates/desktop/src-tauri/*.dll
 windows_dlls/
 
+# The publik app token comes from the build secret PUBLIK_APP_TOKEN, not from the repository.
+publik-app-token.txt
